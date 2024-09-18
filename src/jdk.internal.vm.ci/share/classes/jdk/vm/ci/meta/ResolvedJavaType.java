@@ -402,4 +402,13 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
     default ResolvedJavaField resolveField(UnresolvedJavaField unresolvedJavaField, ResolvedJavaType accessingClass) {
         return null;
     }
+
+    /**
+     * Checks whether this type has an identity.
+     *
+     * @return {@code true} if this type has an identity
+     */
+    default boolean isIdentity() {
+        return true;
+    }
 }
