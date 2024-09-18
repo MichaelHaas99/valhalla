@@ -466,6 +466,11 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
     }
 
     @Override
+    public boolean isIdentity() {
+        return (getAccessFlags() & config().jvmAccIdentity) != 0;
+    }
+
+    @Override
     public boolean isAssignableFrom(ResolvedJavaType other) {
         assert other != null;
         if (other instanceof HotSpotResolvedObjectTypeImpl) {
