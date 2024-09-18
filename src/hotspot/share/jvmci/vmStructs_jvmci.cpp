@@ -494,6 +494,7 @@
   declare_preprocessor_constant("JVM_ACC_ENUM", JVM_ACC_ENUM)             \
   declare_preprocessor_constant("JVM_ACC_SYNTHETIC", JVM_ACC_SYNTHETIC)   \
   declare_preprocessor_constant("JVM_ACC_INTERFACE", JVM_ACC_INTERFACE)   \
+  declare_preprocessor_constant("JVM_ACC_IDENTITY", JVM_ACC_IDENTITY)   \
                                                                           \
   declare_constant(JVM_CONSTANT_Utf8)                                     \
   declare_constant(JVM_CONSTANT_Unicode)                                  \
@@ -817,6 +818,9 @@
                                                                           \
   declare_constant(markWord::no_hash_in_place)                            \
   declare_constant(markWord::no_lock_in_place)                            \
+  declare_constant(markWord::inline_type_pattern)                         \
+  declare_constant(markWord::inline_type_mask_in_place)                   \
+  declare_constant(markWord::inline_type_bit_in_place)                    \
 
 // Helper macro to support ZGC pattern where the function itself isn't exported
 #define DECLARE_FUNCTION_FROM_ADDR(declare_function_with_value, name) \
@@ -869,6 +873,7 @@
   declare_function(JVMCIRuntime::exception_handler_for_pc)                \
   declare_function(JVMCIRuntime::monitorenter)                            \
   declare_function(JVMCIRuntime::monitorexit)                             \
+  declare_function(JVMCIRuntime::substitutability_check)                  \
   declare_function(JVMCIRuntime::object_notify)                           \
   declare_function(JVMCIRuntime::object_notifyAll)                        \
   declare_function(JVMCIRuntime::throw_and_post_jvmti_exception)          \

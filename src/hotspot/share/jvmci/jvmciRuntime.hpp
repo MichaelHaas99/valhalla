@@ -526,6 +526,8 @@ class JVMCIRuntime: public CHeapObj<mtJVMCI> {
   static void monitorexit (JavaThread* current, oopDesc* obj, BasicLock* lock);
   static jboolean object_notify(JavaThread* current, oopDesc* obj);
   static jboolean object_notifyAll(JavaThread* current, oopDesc* obj);
+  static jboolean substitutability_check(JavaThread* current, oopDesc* left, oopDesc* right);
+  
   static void vm_error(JavaThread* current, jlong where, jlong format, jlong value);
   static oopDesc* load_and_clear_exception(JavaThread* thread);
   static void log_printf(JavaThread* thread, const char* format, jlong v1, jlong v2, jlong v3);

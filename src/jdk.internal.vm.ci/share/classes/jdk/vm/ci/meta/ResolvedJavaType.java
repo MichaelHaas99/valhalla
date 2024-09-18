@@ -407,4 +407,13 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
     default boolean isConcrete() {
         return isArray() || !isAbstract();
     }
+
+    /**
+     * Checks whether this type has an identity.
+     *
+     * @return {@code true} if this type has an identity
+     */
+    default boolean isIdentity() {
+        return true;
+    }
 }
