@@ -413,7 +413,7 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
      *
      * @return {@code true} if this type has an identity
      */
-    default boolean isIdentity() {
-        return true;
+    default boolean isIdentity(){
+        throw new UnsupportedOperationException("isIdentity is unsupported");
     }
 }

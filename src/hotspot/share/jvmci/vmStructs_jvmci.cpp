@@ -494,7 +494,7 @@
   declare_preprocessor_constant("JVM_ACC_ENUM", JVM_ACC_ENUM)             \
   declare_preprocessor_constant("JVM_ACC_SYNTHETIC", JVM_ACC_SYNTHETIC)   \
   declare_preprocessor_constant("JVM_ACC_INTERFACE", JVM_ACC_INTERFACE)   \
-  declare_preprocessor_constant("JVM_ACC_IDENTITY", JVM_ACC_IDENTITY)   \
+  declare_preprocessor_constant("JVM_ACC_IDENTITY", JVM_ACC_IDENTITY)     \
                                                                           \
   declare_constant(JVM_CONSTANT_Utf8)                                     \
   declare_constant(JVM_CONSTANT_Unicode)                                  \
