@@ -24,6 +24,7 @@ package jdk.vm.ci.hotspot;
 
 import static java.util.Objects.requireNonNull;
 import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
+import static jdk.vm.ci.hotspot.HotSpotVMConfig.config;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Modifier;
@@ -174,6 +175,11 @@ public final class HotSpotResolvedPrimitiveType extends HotSpotResolvedJavaType 
 
     @Override
     public boolean isInterface() {
+        return false;
+    }
+
+    @Override
+    public boolean isIdentity() {
         return false;
     }
 
