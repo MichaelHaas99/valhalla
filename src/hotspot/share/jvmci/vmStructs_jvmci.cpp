@@ -269,6 +269,7 @@
   nonstatic_field(Klass,                       _super_check_offset,                           juint)                                 \
   volatile_nonstatic_field(Klass,              _subklass,                                     Klass*)                                \
   nonstatic_field(Klass,                       _layout_helper,                                jint)                                  \
+  nonstatic_field(Klass,                       _prototype_header,                             markWord)                              \
   nonstatic_field(Klass,                       _name,                                         Symbol*)                               \
   volatile_nonstatic_field(Klass,              _next_sibling,                                 Klass*)                                \
   nonstatic_field(Klass,                       _java_mirror,                                  OopHandle)                             \
