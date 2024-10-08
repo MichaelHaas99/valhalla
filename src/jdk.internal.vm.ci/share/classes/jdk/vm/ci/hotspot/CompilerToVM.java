@@ -992,7 +992,16 @@ final class CompilerToVM {
      * @return null or the resolved method for this location
      * @throws NullPointerException if {@code base == null}
      */
-    private native HotSpotResolvedObjectTypeImpl getResolvedJavaType0(Object base, long displacement, boolean compressed);
+
+    private native HotSpotResolvedObjectTypeImpl getResolvedJavaType0(Object base, long displacement, boolean compressed, long mask);
+
+    HotSpotResolvedObjectTypeImpl getResolvedJavaType0(Object base, long displacement, boolean compressed){
+        return getResolvedJavaType0(base, displacement, compressed, -1);
+    }
+
+    HotSpotResolvedObjectTypeImpl getResolvedJavaType(Object base, long displacement, long mask){
+        return getResolvedJavaType0(base, displacement, false, mask);
+    }
 
     HotSpotResolvedObjectTypeImpl getResolvedJavaType(HotSpotConstantPool base, long displacement) {
         return getResolvedJavaType0(base, displacement, false);
