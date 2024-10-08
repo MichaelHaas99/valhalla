@@ -22,6 +22,8 @@
  */
 package jdk.vm.ci.meta;
 
+import jdk.vm.ci.hotspot.ACmpDataAccessor;
+
 /**
  * Provides access to the profiling information of one specific method. Every accessor method
  * returns the information that is available at the time of invocation. If a method is invoked
@@ -74,6 +76,13 @@ public interface ProfilingInfo {
      *         if this information was not recorded.
      */
     TriState getExceptionSeen(int bci);
+
+    /**
+     * Returns the AcmpProfile for the given BCI.
+     *
+     * @return Returns a AcmpData object, or null if not available.
+     */
+    ACmpDataAccessor getAcmpData(int bci);
 
     /**
      * Returns information if null was ever seen for the given BCI. This information is collected
@@ -169,6 +178,10 @@ public interface ProfilingInfo {
 
             if (getNullSeen(i) != TriState.UNKNOWN) {
                 buf.append(String.format("nullSeen@%d: %s%s", i, getNullSeen(i).name(), sep));
+            }
+
+            if (getAcmpData(i) != null) {
+                buf.append("acmp_found\n");
             }
 
             JavaTypeProfile typeProfile = getTypeProfile(i);
