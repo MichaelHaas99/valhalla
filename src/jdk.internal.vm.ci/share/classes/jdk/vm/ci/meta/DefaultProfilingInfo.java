@@ -71,8 +71,8 @@ public final class DefaultProfilingInfo implements ProfilingInfo {
 
     @Override
     public ACmpDataAccessor getAcmpData(int bci) {
-        //return ACmpDataAccessor.create();
-        return null;
+        return ACmpDataAccessor.create();
+//        return null;
     }
 
     @Override
