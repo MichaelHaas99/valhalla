@@ -505,7 +505,10 @@ C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject b
       }
     } else if (JVMCIENV->isa_HotSpotMethodData(base_object)) {
       jlong base_address = (intptr_t) JVMCIENV->asMethodData(base_object);
-      klass = *((Klass**) (intptr_t) ((base_address + offset)&mask));
+      Klass* temp = *((Klass**) (intptr_t) (base_address + offset));
+      temp = (Klass*)(((uintptr_t) temp)&mask);
+      klass = temp;
+      //klass = *((Klass**) (intptr_t) (base_address + offset));
       if (klass == nullptr || !klass->is_loader_alive()) {
         // Klasses in methodData might be concurrently unloading so return null in that case.
         return nullptr;
