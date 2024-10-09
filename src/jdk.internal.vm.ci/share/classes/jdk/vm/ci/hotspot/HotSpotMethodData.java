@@ -824,10 +824,10 @@ final class HotSpotMethodData implements MetaspaceObject {
             }
 
             ACmpDataAccessorImpl(){
-//                left = new SingleTypeEntryImpl(1, true, null, 0);
-//                right = new SingleTypeEntryImpl(1, false, null, 0);
-                left = null;
-                right = null;
+                left = new SingleTypeEntryImpl(1, false, null, 0);
+                right = new SingleTypeEntryImpl(1, false, null, 0);
+//                left = null;
+//                right = null;
             }
 
             @Override
