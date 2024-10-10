@@ -23,6 +23,7 @@
 package jdk.vm.ci.meta;
 
 import jdk.vm.ci.hotspot.ACmpDataAccessor;
+import jdk.vm.ci.hotspot.SingleTypeEntry;
 
 /**
  * Provides access to the profiling information of one specific method. Every accessor method
@@ -82,7 +83,7 @@ public interface ProfilingInfo {
      *
      * @return Returns a AcmpData object, or null if not available.
      */
-    ACmpDataAccessor getAcmpData(int bci);
+    ACmpDataAccessor getACmpData(int bci);
 
     /**
      * Returns information if null was ever seen for the given BCI. This information is collected
@@ -180,8 +181,12 @@ public interface ProfilingInfo {
                 buf.append(String.format("nullSeen@%d: %s%s", i, getNullSeen(i).name(), sep));
             }
 
-            if (getAcmpData(i) != null) {
-                buf.append("acmp_found\n");
+            if (getACmpData(i) != null) {
+                SingleTypeEntry left = getACmpData(i).getLeft();
+                String formatString = "ACmpType@%d: %s alwaysNull:%b inlineType:%b%s";
+                buf.append(String.format(formatString, i, left.getValidType(), left.alwaysNull(), left.inlineType(), sep));
+                SingleTypeEntry right = getACmpData(i).getRight();
+                buf.append(String.format(formatString, i, right.getValidType(), right.alwaysNull(), right.inlineType(), sep));
             }
 
             JavaTypeProfile typeProfile = getTypeProfile(i);
