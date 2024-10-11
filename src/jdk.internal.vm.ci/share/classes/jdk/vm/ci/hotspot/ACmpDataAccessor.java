@@ -1,11 +1,14 @@
 package jdk.vm.ci.hotspot;
 
 public interface ACmpDataAccessor {
-    public SingleTypeEntry getLeft();
+    SingleTypeEntry getLeft();
 
-    public SingleTypeEntry getRight();
+    SingleTypeEntry getRight();
 
-    public static ACmpDataAccessor create(){
+    void setDeoptClassCheck();
+    void setDeoptNullCheck();
+
+    static ACmpDataAccessor create(){
         return new HotSpotMethodData.ACmpData.ACmpDataAccessorImpl();
     }
 }
