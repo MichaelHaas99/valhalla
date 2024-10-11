@@ -739,7 +739,11 @@ final class HotSpotMethodData implements MetaspaceObject {
             final long value;
             final int flags;
             final VMState state;
-            final HotSpotResolvedObjectType validType;
+            HotSpotResolvedObjectType validType;
+            boolean maybeNull;
+            boolean neverNull;
+            boolean alwaysNull;
+            boolean inlineType;
 
             final static long nullSeen =1;
             final static long typeMask = ~nullSeen;
@@ -753,6 +757,10 @@ final class HotSpotMethodData implements MetaspaceObject {
                 this.value = data.readPointer(position, getOperandOffset());
                 int offset = state.computeFullOffset(position, getOperandOffset());
                 this.validType = computeValidType(data, offset);
+                this.maybeNull =wasNullSeen() && isTypeNone();
+                this.neverNull = wasNullSeen();
+                this.alwaysNull= maybeNull();
+                this.inlineType =(flags & getInlineFlag()) !=0;
             }
 
             SingleTypeEntryImpl() {
@@ -760,6 +768,10 @@ final class HotSpotMethodData implements MetaspaceObject {
                 this.state = null;
                 this.flags = 0;
                 this.validType = null;
+                this.maybeNull =wasNullSeen() && isTypeNone();
+                this.neverNull = wasNullSeen();
+                this.alwaysNull= maybeNull();
+                this.inlineType =false;
             }
 
             abstract int getOperandOffset();
@@ -802,22 +814,35 @@ final class HotSpotMethodData implements MetaspaceObject {
 
             @Override
             public boolean maybeNull(){
-                return wasNullSeen() && isTypeNone();
+                return maybeNull;
             }
 
             @Override
             public boolean neverNull(){
-                return wasNullSeen();
+                return neverNull;
             }
 
             @Override
             public boolean alwaysNull(){
-                return maybeNull();
+                return alwaysNull;
             }
 
             @Override
             public boolean inlineType(){
-                return (flags & getInlineFlag()) !=0;
+                return inlineType;
+            }
+
+            @Override
+            public void setDeoptClassCheck(){
+                this.validType=null;
+                this.inlineType=true;
+            }
+
+            @Override
+            public void setDeoptNullCheck(){
+                this.alwaysNull=false;
+                this.neverNull=false;
+                this.maybeNull=false;
             }
 
         }
@@ -895,6 +920,18 @@ final class HotSpotMethodData implements MetaspaceObject {
             @Override
             public SingleTypeEntry getRight() {
                 return right;
+            }
+
+            @Override
+            public void setDeoptClassCheck() {
+                left.setDeoptClassCheck();
+                right.setDeoptClassCheck();
+            }
+
+            @Override
+            public void setDeoptNullCheck() {
+                left.setDeoptNullCheck();
+                right.setDeoptNullCheck();
             }
         }
 

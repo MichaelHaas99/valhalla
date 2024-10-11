@@ -126,9 +126,9 @@ final class HotSpotProfilingInfo implements ProfilingInfo {
 
     @Override
     public ACmpDataAccessor getACmpData(int bci) {
-//        if (!isMature) {
-//            return null;
-//        }
+        if (!isMature) {
+            return null;
+        }
         findBCI(bci);
         if(dataAccessor instanceof HotSpotMethodData.ACmpData aCmpData){
             return aCmpData.getACmpAccessor(methodData, position);
