@@ -21,4 +21,7 @@ public interface SingleTypeEntry{
 
     boolean inlineType();
 
+    void setDeoptClassCheck();
+    void setDeoptNullCheck();
+
 }
