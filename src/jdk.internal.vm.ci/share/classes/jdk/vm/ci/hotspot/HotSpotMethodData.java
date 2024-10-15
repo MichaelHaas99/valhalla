@@ -78,11 +78,12 @@ final class HotSpotMethodData implements MetaspaceObject {
         final int notTakenCountOffset = cellIndexToOffset(config.branchDataNotTakenOffset);
 
         // inherits from branch and two cells for types
-        final int acmpDataSize = branchDataSize+ cellsToBytes(1)*2;
+        final int acmpDataSize = branchDataSize + cellsToBytes(1)*2;
+        // TODO: get values from VM
         final int leftOperandOffset = cellIndexToOffset(3);
         final int rightOperandOffset = cellIndexToOffset(4);
-        final int leftInlineTypeFlag = 1;
-        final int rightInlineTypeFlag = 1<<1;
+        final int leftInlineTypeFlag = 1 << config.leftInlineTypeFlag;
+        final int rightInlineTypeFlag = 1 << config.rightInlineTypeFlag;
 
         final int arrayDataLengthOffset = cellIndexToOffset(config.arrayDataArrayLenOffset);
         final int arrayDataStartOffset = cellIndexToOffset(config.arrayDataArrayStartOffset);
@@ -757,9 +758,13 @@ final class HotSpotMethodData implements MetaspaceObject {
                 this.value = data.readPointer(position, getOperandOffset());
                 int offset = state.computeFullOffset(position, getOperandOffset());
                 this.validType = computeValidType(data, offset);
-                this.maybeNull =wasNullSeen() && isTypeNone();
-                this.neverNull = wasNullSeen();
-                this.alwaysNull= maybeNull();
+                if(!wasNullSeen()){
+                    this.neverNull = true;
+                }else if(isTypeNone()){
+                    this.alwaysNull = true;
+                }else{
+                    this.maybeNull = true;
+                }
                 this.inlineType =(flags & getInlineFlag()) !=0;
             }
 
@@ -768,9 +773,9 @@ final class HotSpotMethodData implements MetaspaceObject {
                 this.state = null;
                 this.flags = 0;
                 this.validType = null;
-                this.maybeNull =wasNullSeen() && isTypeNone();
-                this.neverNull = wasNullSeen();
-                this.alwaysNull= maybeNull();
+                this.maybeNull = wasNullSeen() && !isTypeNone();
+                this.neverNull = !wasNullSeen();
+                this.alwaysNull= isTypeNone();
                 this.inlineType =false;
             }
 
@@ -800,7 +805,7 @@ final class HotSpotMethodData implements MetaspaceObject {
 
             private HotSpotResolvedObjectType computeValidType(HotSpotMethodData data, int offset){
                 if(!isTypeNone() && ! isTypeUnknown()){
-                    return compilerToVM().getResolvedJavaType(data, offset, typeKlassMask);
+                    return compilerToVM().getResolvedJavaType(data, offset);
                 }else{
                     return null;
                 }
