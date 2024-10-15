@@ -531,6 +531,8 @@
   declare_constant(BitData::exception_seen_flag)                          \
   declare_constant(BitData::null_seen_flag)                               \
   declare_constant(BranchData::not_taken_off_set)                         \
+  declare_constant(ACmpData::left_inline_type_flag)                       \
+  declare_constant(ACmpData::right_inline_type_flag)                      \
                                                                           \
   declare_constant_with_value("CardTable::dirty_card", CardTable::dirty_card_val()) \
   declare_constant_with_value("LockStack::_end_offset", LockStack::end_offset()) \

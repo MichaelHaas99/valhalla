@@ -437,7 +437,7 @@ C2V_VMENTRY_NULL(jobject, getConstantPool, (JNIEnv* env, jobject, ARGUMENT_PAIR(
   return JVMCIENV->get_jobject(result);
 }
 
-C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject base, jlong offset, jboolean compressed, jlong mask))
+C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject base, jlong offset, jboolean compressed))
   JVMCIObject base_object = JVMCIENV->wrap(base);
   if (base_object.is_null()) {
     JVMCI_THROW_MSG_NULL(NullPointerException, "base object is null");
@@ -501,7 +501,7 @@ C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject b
     } else if (JVMCIENV->isa_HotSpotMethodData(base_object)) {
       jlong base_address = (intptr_t) JVMCIENV->asMethodData(base_object);
       Klass* temp = *((Klass**) (intptr_t) (base_address + offset));
-      temp = (Klass*)(((uintptr_t) temp)&mask);
+      temp = (Klass*)(((uintptr_t) temp)& WordAlignmentMask);
       klass = temp;
       //klass = *((Klass**) (intptr_t) (base_address + offset));
       if (klass == nullptr || !klass->is_loader_alive()) {
@@ -3306,7 +3306,7 @@ JNINativeMethod CompilerToVM::methods[] = {
   {CC "asResolvedJavaMethod",                         CC "(" EXECUTABLE ")" HS_METHOD,                                                      FN_PTR(asResolvedJavaMethod)},
   {CC "getResolvedJavaMethod",                        CC "(" OBJECTCONSTANT "J)" HS_METHOD,                                                 FN_PTR(getResolvedJavaMethod)},
   {CC "getConstantPool",                              CC "(" OBJECT "JZ)" HS_CONSTANT_POOL,                                                 FN_PTR(getConstantPool)},
-  {CC "getResolvedJavaType0",                         CC "(Ljava/lang/Object;JZJ)" HS_KLASS,                                                 FN_PTR(getResolvedJavaType0)},
+  {CC "getResolvedJavaType0",                         CC "(Ljava/lang/Object;JZ)" HS_KLASS,                                                 FN_PTR(getResolvedJavaType0)},
   {CC "readConfiguration",                            CC "()[" OBJECT,                                                                      FN_PTR(readConfiguration)},
   {CC "installCode0",                                 CC "(JJZ" HS_COMPILED_CODE "[" OBJECT INSTALLED_CODE "J[B)I",                         FN_PTR(installCode0)},
   {CC "getInstallCodeFlags",                          CC "()I",                                                                             FN_PTR(getInstallCodeFlags)},
