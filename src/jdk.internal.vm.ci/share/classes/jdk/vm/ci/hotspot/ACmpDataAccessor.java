@@ -7,8 +7,4 @@ public interface ACmpDataAccessor {
 
     void setDeoptClassCheck();
     void setDeoptNullCheck();
-
-    static ACmpDataAccessor create(){
-        return new HotSpotMethodData.ACmpData.ACmpDataAccessorImpl();
-    }
 }

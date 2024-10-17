@@ -737,74 +737,58 @@ final class HotSpotMethodData implements MetaspaceObject {
     static class ACmpData extends BranchData {
 
         abstract static class SingleTypeEntryImpl implements SingleTypeEntry {
-            final long value;
-            final int flags;
-            final VMState state;
-            HotSpotResolvedObjectType validType;
-            boolean maybeNull;
-            boolean neverNull;
-            boolean alwaysNull;
-            boolean inlineType;
+            private final long value;
+            private final VMState state;
+            private HotSpotResolvedObjectType validType;
+            private boolean maybeNull;
+            private boolean neverNull;
+            private boolean alwaysNull;
+            private boolean inlineType;
 
             final static long nullSeen =1;
             final static long typeMask = ~nullSeen;
             final static long typeUnknown = 2;
-            final static long statusBits = nullSeen | typeUnknown;
-            final static long typeKlassMask = ~statusBits;
 
             SingleTypeEntryImpl(ACmpData aCmpData, HotSpotMethodData data, int position) {
                 this.state = aCmpData.state;
-                this.flags = aCmpData.getFlags(data, position);
                 this.value = data.readPointer(position, getOperandOffset());
+
                 int offset = state.computeFullOffset(position, getOperandOffset());
-                this.validType = computeValidType(data, offset);
-                if(!wasNullSeen()){
+                this.validType = computeValidType(this.value, data, offset);
+
+                if(!wasNullSeen(this.value)){
                     this.neverNull = true;
-                }else if(isTypeNone()){
+                }else if(isTypeNone(this.value)){
                     this.alwaysNull = true;
                 }else{
                     this.maybeNull = true;
                 }
-                this.inlineType =(flags & getInlineFlag()) !=0;
-            }
 
-            SingleTypeEntryImpl() {
-                this.value = 0;
-                this.state = null;
-                this.flags = 0;
-                this.validType = null;
-                this.maybeNull = wasNullSeen() && !isTypeNone();
-                this.neverNull = !wasNullSeen();
-                this.alwaysNull= isTypeNone();
-                this.inlineType =false;
+                int flags = aCmpData.getFlags(data, position);
+                this.inlineType =(flags & getInlineFlag()) !=0;
             }
 
             abstract int getOperandOffset();
             abstract int getInlineFlag();
 
+            protected VMState getState(){
+                return state;
+            }
 
-            @Override
-            public boolean isTypeNone(){
+            private static boolean isTypeNone(long value){
                 return (value & typeMask) == 0;
             }
 
-            @Override
-            public boolean isTypeUnknown(){
+            private static  boolean isTypeUnknown(long value){
                 return (value & typeUnknown) != 0;
             }
 
-            @Override
-            public boolean wasNullSeen(){
+            private static  boolean wasNullSeen(long value){
                 return (value & nullSeen) != 0;
             }
 
-            @Override
-            public long klassPart(){
-                return value & typeKlassMask;
-            }
-
-            private HotSpotResolvedObjectType computeValidType(HotSpotMethodData data, int offset){
-                if(!isTypeNone() && ! isTypeUnknown()){
+            private HotSpotResolvedObjectType computeValidType(long value, HotSpotMethodData data, int offset){
+                if(!isTypeNone(value) && ! isTypeUnknown(value)){
                     return compilerToVM().getResolvedJavaType(data, offset);
                 }else{
                     return null;
@@ -858,16 +842,14 @@ final class HotSpotMethodData implements MetaspaceObject {
                 super(aCmpData, data, position);
             }
 
-            LeftSingleTypeEntryImpl(){}
-
             @Override
             int getOperandOffset(){
-                return state.leftOperandOffset;
+                return getState().leftOperandOffset;
             }
 
             @Override
             int getInlineFlag(){
-                return state.leftInlineTypeFlag;
+                return getState().leftInlineTypeFlag;
             }
         }
 
@@ -877,16 +859,14 @@ final class HotSpotMethodData implements MetaspaceObject {
                 super(aCmpData, data, position);
             }
 
-            RightSingleTypeEntryImpl(){}
-
             @Override
             int getOperandOffset(){
-                return state.rightOperandOffset;
+                return getState().rightOperandOffset;
             }
 
             @Override
             int getInlineFlag(){
-                return state.rightInlineTypeFlag;
+                return getState().rightInlineTypeFlag;
             }
         }
 
@@ -898,23 +878,6 @@ final class HotSpotMethodData implements MetaspaceObject {
             ACmpDataAccessorImpl(ACmpData aCmpData, HotSpotMethodData data, int position){
                 left = aCmpData.getLeft(aCmpData, data, position);
                 right = aCmpData.getRight(aCmpData, data, position);
-            }
-
-            ACmpDataAccessorImpl(){
-//                left = new SingleTypeEntryImpl(1, false, null, 0);
-//                right = new SingleTypeEntryImpl(1, false, null, 0);
-                left = new LeftSingleTypeEntryImpl(){
-                    @Override
-                    int getInlineFlag() {
-                        return 0;
-                    }
-                };
-                right = new RightSingleTypeEntryImpl(){
-                    @Override
-                    int getInlineFlag() {
-                        return 0;
-                    }
-                };
             }
 
             @Override
