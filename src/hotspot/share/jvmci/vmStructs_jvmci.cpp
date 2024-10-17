@@ -245,6 +245,7 @@
   nonstatic_field(Klass,                       _super_check_offset,                           juint)                                 \
   volatile_nonstatic_field(Klass,              _subklass,                                     Klass*)                                \
   nonstatic_field(Klass,                       _layout_helper,                                jint)                                  \
+  nonstatic_field(Klass,                       _prototype_header,                             markWord)                              \
   nonstatic_field(Klass,                       _name,                                         Symbol*)                               \
   volatile_nonstatic_field(Klass,              _next_sibling,                                 Klass*)                                \
   nonstatic_field(Klass,                       _java_mirror,                                  OopHandle)                             \
@@ -475,6 +476,7 @@
   declare_preprocessor_constant("JVM_ACC_ENUM", JVM_ACC_ENUM)             \
   declare_preprocessor_constant("JVM_ACC_SYNTHETIC", JVM_ACC_SYNTHETIC)   \
   declare_preprocessor_constant("JVM_ACC_INTERFACE", JVM_ACC_INTERFACE)   \
+  declare_preprocessor_constant("JVM_ACC_IDENTITY", JVM_ACC_IDENTITY)     \
                                                                           \
   declare_constant(JVM_CONSTANT_Utf8)                                     \
   declare_constant(JVM_CONSTANT_Unicode)                                  \
@@ -513,6 +515,8 @@
   declare_constant(BitData::exception_seen_flag)                          \
   declare_constant(BitData::null_seen_flag)                               \
   declare_constant(BranchData::not_taken_off_set)                         \
+  declare_constant(ACmpData::left_inline_type_flag)                       \
+  declare_constant(ACmpData::right_inline_type_flag)                      \
                                                                           \
   declare_constant_with_value("CardTable::dirty_card", CardTable::dirty_card_val()) \
   declare_constant_with_value("LockStack::_end_offset", LockStack::end_offset()) \
@@ -786,6 +790,9 @@
                                                                           \
   declare_constant(markWord::no_hash_in_place)                            \
   declare_constant(markWord::no_lock_in_place)                            \
+  declare_constant(markWord::inline_type_pattern)                         \
+  declare_constant(markWord::inline_type_mask_in_place)                   \
+  declare_constant(markWord::inline_type_bit_in_place)                    \
 
 #define VM_ADDRESSES(declare_address, declare_preprocessor_address, declare_function) \
   declare_function(SharedRuntime::register_finalizer)                     \
@@ -821,6 +828,7 @@
   declare_function(JVMCIRuntime::exception_handler_for_pc)                \
   declare_function(JVMCIRuntime::monitorenter)                            \
   declare_function(JVMCIRuntime::monitorexit)                             \
+  declare_function(JVMCIRuntime::substitutability_check)                  \
   declare_function(JVMCIRuntime::object_notify)                           \
   declare_function(JVMCIRuntime::object_notifyAll)                        \
   declare_function(JVMCIRuntime::throw_and_post_jvmti_exception)          \

@@ -125,6 +125,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int jvmAccVarargs = getConstant("JVM_ACC_VARARGS", Integer.class);
     final int jvmAccEnum = getConstant("JVM_ACC_ENUM", Integer.class);
     final int jvmAccInterface = getConstant("JVM_ACC_INTERFACE", Integer.class);
+    final int jvmAccIdentity = getConstant("JVM_ACC_IDENTITY", Integer.class);
 
     final int jvmMiscFlagsHasDefaultMethods = getConstant("InstanceKlassFlags::_misc_has_nonstatic_concrete_methods", Integer.class);
     final int jvmMiscFlagsDeclaresDefaultMethods = getConstant("InstanceKlassFlags::_misc_declares_nonstatic_concrete_methods", Integer.class);
@@ -385,4 +386,6 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int arrayDataArrayLenOffset = getConstant("ArrayData::array_len_off_set", Integer.class);
     final int arrayDataArrayStartOffset = getConstant("ArrayData::array_start_off_set", Integer.class);
     final int multiBranchDataPerCaseCellCount = getConstant("MultiBranchData::per_case_cell_count", Integer.class);
+    final int leftInlineTypeFlag = getConstant("ACmpData::left_inline_type_flag", Integer.class);
+    final int rightInlineTypeFlag = getConstant("ACmpData::right_inline_type_flag", Integer.class);
 }
