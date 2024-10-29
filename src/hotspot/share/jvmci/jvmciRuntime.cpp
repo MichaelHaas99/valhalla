@@ -426,6 +426,18 @@ JRT_ENTRY(jboolean, JVMCIRuntime::substitutability_check(JavaThread* current, oo
   return result.get_jboolean();
 JRT_END
 
+JRT_ENTRY(jint, JVMCIRuntime::value_object_hashCode(JavaThread* current, oopDesc* obj))
+  JavaCallArguments args;
+  args.push_oop(Handle(THREAD, obj));
+  JavaValue result(T_INT);
+  JavaCalls::call_static(&result,
+                         vmClasses::ValueObjectMethods_klass(),
+                         vmSymbols::valueObjectHashCode_name(),
+                         vmSymbols::object_int_signature(),
+                         &args, CHECK_0);
+  return result.get_jint();
+JRT_END
+
 // Object.notifyAll() fast path, caller does slow path
 JRT_LEAF(jboolean, JVMCIRuntime::object_notifyAll(JavaThread* current, oopDesc* obj))
   assert(current == JavaThread::current(), "pre-condition");

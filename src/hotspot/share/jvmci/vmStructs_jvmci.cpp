@@ -877,6 +877,7 @@
   declare_function(JVMCIRuntime::monitorenter)                            \
   declare_function(JVMCIRuntime::monitorexit)                             \
   declare_function(JVMCIRuntime::substitutability_check)                  \
+  declare_function(JVMCIRuntime::value_object_hashCode)                   \
   declare_function(JVMCIRuntime::object_notify)                           \
   declare_function(JVMCIRuntime::object_notifyAll)                        \
   declare_function(JVMCIRuntime::throw_and_post_jvmti_exception)          \
