@@ -79,7 +79,8 @@
     int_field(FieldInfo, classfileFlags)                                                                      \
     int_field(FieldInfo, internalFlags)                                                                       \
     int_field(FieldInfo, initializerIndex)                                                                    \
-    jvmci_constructor(FieldInfo, "(IIIIII)V")                                                                 \
+    int_field(FieldInfo, nullMarkerOffset)                                                                    \
+    jvmci_constructor(FieldInfo, "(IIIIIII)V")                                                                 \
   end_class                                                                                                   \
   start_class(HotSpotResolvedJavaMethodImpl, jdk_vm_ci_hotspot_HotSpotResolvedJavaMethodImpl)                 \
     long_field(HotSpotResolvedJavaMethodImpl, methodHandle)                                                   \

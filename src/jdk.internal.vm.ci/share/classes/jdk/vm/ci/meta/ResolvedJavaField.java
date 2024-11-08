@@ -46,6 +46,13 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
      */
     int getOffset();
 
+    /**
+     * returns a new instance with a changed offset of the field relative to the base of its storage container
+     */
+    default ResolvedJavaField changeOffset(int newOffset) {
+        throw new UnsupportedOperationException();
+    }
+
     default boolean isFinal() {
         return ModifiersProvider.super.isFinalFlagSet();
     }
@@ -55,6 +62,22 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
      * from a class file.
      */
     boolean isInternal();
+
+    /**
+     * Determines if this field is flat. Such a field, for example, is not derived
+     * from a class file.
+     */
+    default boolean isFlat() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Determines if this field is a null free inline type. Such a field, for example, is not derived
+     * from a class file.
+     */
+    default boolean isNullFreeInlineType() {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Determines if this field is a synthetic field as defined by the Java Language Specification.

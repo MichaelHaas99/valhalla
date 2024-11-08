@@ -264,6 +264,10 @@
   nonstatic_field(Klass,                       _secondary_supers,                             Array<Klass*>*)                        \
   nonstatic_field(Klass,                       _super,                                        Klass*)                                \
   nonstatic_field(Klass,                       _super_check_offset,                           juint)                                 \
+  nonstatic_field(InstanceKlass,               _adr_inlineklass_fixed_block,                  InlineKlassFixedBlock*)                \
+  nonstatic_field(InlineKlassFixedBlock,       _first_field_offset,                           int)                                   \
+  nonstatic_field(InlineKlassFixedBlock,       _internal_null_marker_offset,                  int)                                   \
+  nonstatic_field(FieldInfo,                   _null_marker_offset,                           u4)                                    \
   volatile_nonstatic_field(Klass,              _subklass,                                     Klass*)                                \
   nonstatic_field(Klass,                       _layout_helper,                                jint)                                  \
   nonstatic_field(Klass,                       _prototype_header,                             markWord)                              \
@@ -486,6 +490,10 @@
   declare_constant(JVM_ACC_WRITTEN_FLAGS)                                 \
   declare_constant(FieldInfo::FieldFlags::_ff_injected)                   \
   declare_constant(FieldInfo::FieldFlags::_ff_stable)                     \
+  declare_constant(FieldInfo::FieldFlags::_ff_flat)                       \
+  declare_constant(FieldInfo::FieldFlags::_ff_null_free_inline_type)      \
+  declare_constant(FieldInfo::FieldFlags::_ff_null_marker)                \
+  declare_constant(FieldInfo::FieldFlags::_ff_internal_null_marker)       \
   declare_preprocessor_constant("JVM_ACC_VARARGS", JVM_ACC_VARARGS)       \
   declare_preprocessor_constant("JVM_ACC_BRIDGE", JVM_ACC_BRIDGE)         \
   declare_preprocessor_constant("JVM_ACC_ANNOTATION", JVM_ACC_ANNOTATION) \

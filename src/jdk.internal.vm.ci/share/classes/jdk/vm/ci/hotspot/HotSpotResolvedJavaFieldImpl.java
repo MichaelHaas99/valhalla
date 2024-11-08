@@ -33,11 +33,7 @@ import java.util.Collections;
 import java.util.List;
 
 import jdk.internal.vm.VMSupport;
-import jdk.vm.ci.meta.AnnotationData;
-import jdk.vm.ci.meta.JavaConstant;
-import jdk.vm.ci.meta.JavaType;
-import jdk.vm.ci.meta.ResolvedJavaType;
-import jdk.vm.ci.meta.UnresolvedJavaType;
+import jdk.vm.ci.meta.*;
 
 /**
  * Represents a field in a HotSpot type.
@@ -51,7 +47,7 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
      * Offset (in bytes) of field from start of its storage container (i.e. {@code instanceOop} or
      * {@code Klass*}).
      */
-    private final int offset;
+    private int offset;
 
     /**
      * Value of {@code fieldDescriptor::index()}.
@@ -108,6 +104,16 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
         return (internalFlags & (1 << config().jvmFieldFlagInternalShift)) != 0;
     }
 
+    @Override
+    public boolean isNullFreeInlineType() {
+        return (internalFlags & (1 << config().jvmFieldFlagNullFreeInlineTypeShift)) != 0;
+    }
+
+    @Override
+    public boolean isFlat(){
+        return (internalFlags & (1 << config().jvmFieldFlagFlatShift)) != 0;
+    }
+
     /**
      * Determines if a given object contains this field.
      *
@@ -157,6 +163,11 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     @Override
     public int getOffset() {
         return offset;
+    }
+
+    @Override
+    public ResolvedJavaField changeOffset(int newOffset) {
+        return new HotSpotResolvedJavaFieldImpl(holder, type, newOffset, classfileFlags, internalFlags, index);
     }
 
     /**

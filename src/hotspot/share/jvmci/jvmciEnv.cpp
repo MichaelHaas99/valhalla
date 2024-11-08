@@ -1596,6 +1596,7 @@ JVMCIObject JVMCIEnv::new_FieldInfo(FieldInfo* fieldinfo, JVMCI_TRAPS) {
     HotSpotJVMCI::FieldInfo::set_classfileFlags(JVMCIENV, obj_h(), (jint)fieldinfo->access_flags().as_int());
     HotSpotJVMCI::FieldInfo::set_internalFlags(JVMCIENV, obj_h(), (jint)fieldinfo->field_flags().as_uint());
     HotSpotJVMCI::FieldInfo::set_initializerIndex(JVMCIENV, obj_h(), (jint)fieldinfo->initializer_index());
+    HotSpotJVMCI::FieldInfo::set_nullMarkerOffset(JVMCIENV, obj_h(), (jint)fieldinfo->null_marker_offset());
     return wrap(obj_h());
   } else {
     JNIAccessMark jni(this, THREAD);
@@ -1606,7 +1607,8 @@ JVMCIObject JVMCIEnv::new_FieldInfo(FieldInfo* fieldinfo, JVMCI_TRAPS) {
                                       (jint)fieldinfo->offset(),
                                       (jint)fieldinfo->access_flags().as_int(),
                                       (jint)fieldinfo->field_flags().as_uint(),
-                                      (jint)fieldinfo->initializer_index());
+                                      (jint)fieldinfo->initializer_index(),
+                                      (jint)fieldinfo->null_marker_offset());
 
     return wrap(result);
   }
