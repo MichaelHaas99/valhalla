@@ -47,6 +47,7 @@
 #include "oops/constantPool.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/instanceMirrorKlass.hpp"
+#include "oops/methodData.hpp"
 #include "oops/method.inline.hpp"
 #include "oops/objArrayKlass.inline.hpp"
 #include "oops/typeArrayOop.inline.hpp"
@@ -506,9 +507,9 @@ C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject b
     } else if (JVMCIENV->isa_HotSpotMethodData(base_object)) {
       jlong base_address = (intptr_t) JVMCIENV->asMethodData(base_object);
       intptr_t temp = (intptr_t) *((Klass**) (intptr_t) (base_address + offset));
-      // clear the bits used for acmp data profiling
-      clear_bits(temp, 0b011);
-      klass = (Klass*) temp;
+
+      // profiled type: cell without bit 0 and 1
+      klass = (Klass*) (temp & TypeEntries::type_klass_mask);
       if (klass == nullptr || !klass->is_loader_alive()) {
         // Klasses in methodData might be concurrently unloading so return null in that case.
         return nullptr;

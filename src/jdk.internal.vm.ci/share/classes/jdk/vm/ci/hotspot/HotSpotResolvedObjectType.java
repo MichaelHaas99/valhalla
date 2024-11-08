@@ -97,6 +97,7 @@ public interface HotSpotResolvedObjectType extends ResolvedJavaType {
     boolean isPrimaryType();
 
     int superCheckOffset();
+    int firstFieldOffset();
 
     long prototypeMarkWord();
 
