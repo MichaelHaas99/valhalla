@@ -22,17 +22,16 @@
  */
 package jdk.vm.ci.hotspot;
 
+import jdk.internal.misc.Unsafe;
+import jdk.internal.util.Architecture;
+import jdk.vm.ci.common.JVMCIError;
+
 import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
 import static jdk.vm.ci.hotspot.UnsafeAccess.UNSAFE;
 
-import jdk.vm.ci.common.JVMCIError;
-import jdk.vm.ci.services.Services;
-import jdk.internal.misc.Unsafe;
-import jdk.internal.util.Architecture;
-
 /**
  * Used to access native configuration details.
- *
+ * <p>
  * All non-static, public fields in this class are so that they can be compiled as constants.
  */
 class HotSpotVMConfig extends HotSpotVMConfigAccess {
@@ -58,8 +57,10 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     static String getHostArchitectureName() {
         Architecture arch = Architecture.current();
         switch (arch) {
-            case X64: return "amd64";
-            default:  return arch.name().toLowerCase();
+            case X64:
+                return "amd64";
+            default:
+                return arch.name().toLowerCase();
         }
     }
 
@@ -79,7 +80,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int firstFieldOffset = getFieldOffset("InlineKlassFixedBlock::_first_field_offset", Integer.class, "int");
     final int internalNullMarkerOffset = getFieldOffset("InlineKlassFixedBlock::_internal_null_marker_offset", Integer.class, "int");
     final int nullMarkerOffset = getFieldOffset("FieldInfo::_null_marker_offset", Integer.class, "u4");
-    final int inlineKlassFixedBlockAdr = getFieldOffset("InstanceKlass::_adr_inlineklass_fixed_block", Integer.class, "InlineKlassFixedBlock*");
+    final int inlineKlassFixedBlockAdr = getFieldOffset("InstanceKlass::_adr_inlineklass_fixed_block", Integer.class, "InlineKlassFixedBlock const *");
 
     final int classLoaderDataOffset = getFieldOffset("Klass::_class_loader_data", Integer.class, "ClassLoaderData*");
 
