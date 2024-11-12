@@ -22,18 +22,18 @@
  */
 package jdk.vm.ci.hotspot;
 
-import static jdk.internal.misc.Unsafe.ADDRESS_SIZE;
-import static jdk.vm.ci.hotspot.CompilerToVM.compilerToVM;
-import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
-import static jdk.vm.ci.hotspot.HotSpotVMConfig.config;
-import static jdk.vm.ci.hotspot.UnsafeAccess.UNSAFE;
+import jdk.internal.vm.VMSupport;
+import jdk.vm.ci.meta.*;
 
 import java.lang.annotation.Annotation;
 import java.util.Collections;
 import java.util.List;
 
-import jdk.internal.vm.VMSupport;
-import jdk.vm.ci.meta.*;
+import static jdk.internal.misc.Unsafe.ADDRESS_SIZE;
+import static jdk.vm.ci.hotspot.CompilerToVM.compilerToVM;
+import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
+import static jdk.vm.ci.hotspot.HotSpotVMConfig.config;
+import static jdk.vm.ci.hotspot.UnsafeAccess.UNSAFE;
 
 /**
  * Represents a field in a HotSpot type.
@@ -110,15 +110,42 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     }
 
     @Override
-    public boolean isFlat(){
+    public boolean isFlat() {
         return (internalFlags & (1 << config().jvmFieldFlagFlatShift)) != 0;
+    }
+
+    @Override
+    public int getNullMarkerOffset() {
+        return holder.getFieldInfo(index).getNullMarkerOffset();
+    }
+
+    @Override
+    public HotSpotResolvedJavaField getNullMarkerField() {
+        HotSpotResolvedJavaType byteType = HotSpotResolvedPrimitiveType.forKind(JavaKind.Byte);
+        return new HotSpotResolvedJavaFieldImpl(holder, byteType, getNullMarkerOffset(), 0, 0, -1) {
+            @Override
+            public String getName() {
+                return "nullMarkerOffset";
+            }
+
+            @Override
+            public int getNullMarkerOffset() {
+                return -1;
+            }
+
+            @Override
+            public JavaConstant getConstantValue() {
+                return null;
+            }
+        };
+        //return new HotSpotResolvedJavaFieldImpl(holder, byteType, getNullMarkerOffset(), 0, 0, -1);
     }
 
     /**
      * Determines if a given object contains this field.
      *
      * @return true iff this is a non-static field and its declaring class is assignable from
-     *         {@code object}'s class
+     * {@code object}'s class
      */
     @Override
     public boolean isInObject(JavaConstant object) {
@@ -195,7 +222,7 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
      */
     @Override
     public boolean isStable() {
-        return (1 << (config().jvmFieldFlagStableShift ) & internalFlags) != 0;
+        return (1 << (config().jvmFieldFlagStableShift) & internalFlags) != 0;
     }
 
     private boolean hasAnnotations() {

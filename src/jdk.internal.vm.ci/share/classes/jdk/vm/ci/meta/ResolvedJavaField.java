@@ -53,6 +53,13 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * returns a resolved java field which represents the null marker field of a flattened inline type
+     */
+    default ResolvedJavaField getNullMarkerField() {
+        throw new UnsupportedOperationException();
+    }
+
     default boolean isFinal() {
         return ModifiersProvider.super.isFinalFlagSet();
     }
@@ -76,6 +83,14 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
      * from a class file.
      */
     default boolean isNullFreeInlineType() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns the null marker offset for nullable flattened fields. Such a field, for example, is not derived
+     * from a class file.
+     */
+    default int getNullMarkerOffset() {
         throw new UnsupportedOperationException();
     }
 

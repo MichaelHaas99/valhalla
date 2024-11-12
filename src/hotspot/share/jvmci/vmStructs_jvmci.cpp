@@ -264,7 +264,7 @@
   nonstatic_field(Klass,                       _secondary_supers,                             Array<Klass*>*)                        \
   nonstatic_field(Klass,                       _super,                                        Klass*)                                \
   nonstatic_field(Klass,                       _super_check_offset,                           juint)                                 \
-  nonstatic_field(InstanceKlass,               _adr_inlineklass_fixed_block,                  InlineKlassFixedBlock*)                \
+  nonstatic_field(InstanceKlass,               _adr_inlineklass_fixed_block,                  InlineKlassFixedBlock const *)         \
   nonstatic_field(InlineKlassFixedBlock,       _first_field_offset,                           int)                                   \
   nonstatic_field(InlineKlassFixedBlock,       _internal_null_marker_offset,                  int)                                   \
   nonstatic_field(FieldInfo,                   _null_marker_offset,                           u4)                                    \
@@ -297,6 +297,7 @@
   nonstatic_field(Method,                      _flags._status,                                u4)                                    \
   volatile_nonstatic_field(Method,             _code,                                         nmethod*)                              \
   volatile_nonstatic_field(Method,             _from_compiled_entry,                          address)                               \
+  volatile_nonstatic_field(Method,             _from_compiled_inline_entry,                   address)                               \
                                                                                                                                      \
   nonstatic_field(MethodCounters,              _invoke_mask,                                  int)                                   \
   nonstatic_field(MethodCounters,              _backedge_mask,                                int)                                   \
