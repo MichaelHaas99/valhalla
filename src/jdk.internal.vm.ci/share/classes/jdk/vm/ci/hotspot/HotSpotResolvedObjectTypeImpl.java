@@ -534,6 +534,26 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
     }
 
     @Override
+    public int getLog2ComponentSize() {
+        assert isArray();
+        HotSpotVMConfig config = config();
+        final int layoutHelper = layoutHelper();
+        //    assert(lh < (jint)_lh_neutral_value, "must be array");
+        //    int l2esz = (lh >> _lh_log2_element_size_shift) & _lh_log2_element_size_mask;
+        assert layoutHelper < config.klassLayoutHelperNeutralValue : "must be array";
+        int l2esz = (layoutHelper >> config.klassLayoutHelperLog2ElementSizeShift) & config.klassLayoutHelperLog2ElementSizeMask;
+        return l2esz;
+    }
+
+    @Override
+    public boolean isFlatArray() {
+        HotSpotVMConfig config = config();
+        assert isArray();
+        assert getKlassPointer() != 0 : getName();
+        return UNSAFE.getInt(getKlassPointer() + config.klassKind) == config.klassFlatArray;
+    }
+
+    @Override
     public int layoutHelper() {
         HotSpotVMConfig config = config();
         assert getKlassPointer() != 0 : getName();

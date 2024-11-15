@@ -1182,6 +1182,15 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
     }
 
     /**
+     * The offset from the origin of a flat array to the first element.
+     *
+     * @return the offset in bytes
+     */
+    public int getFlatArrayBaseOffset() {
+        return compilerToVm.ARRAY_PRIMITIVE_OBJECT_BASE_OFFSET;
+    }
+
+    /**
      * The scale used for the index when accessing elements of an array of this kind.
      *
      * @return the scale in order to convert the index into a byte offset

@@ -276,6 +276,7 @@
   nonstatic_field(Klass,                       _java_mirror,                                  OopHandle)                             \
   nonstatic_field(Klass,                       _modifier_flags,                               jint)                                  \
   nonstatic_field(Klass,                       _access_flags,                                 AccessFlags)                           \
+  nonstatic_field(Klass,                       _kind,                                         Klass::KlassKind const)                \
   nonstatic_field(Klass,                       _class_loader_data,                            ClassLoaderData*)                      \
   nonstatic_field(Klass,                       _bitmap,                                       uintx)                                 \
   nonstatic_field(Klass,                       _hash_slot,                                    uint8_t)                               \
@@ -769,6 +770,7 @@
   declare_constant(Klass::_lh_instance_slow_path_bit)                     \
   declare_constant(Klass::_lh_log2_element_size_shift)                    \
   declare_constant(Klass::_lh_log2_element_size_mask)                     \
+  declare_constant(Klass::FlatArrayKlassKind)                             \
   declare_constant(Klass::_lh_element_type_shift)                         \
   declare_constant(Klass::_lh_element_type_mask)                          \
   declare_constant(Klass::_lh_header_size_shift)                          \
