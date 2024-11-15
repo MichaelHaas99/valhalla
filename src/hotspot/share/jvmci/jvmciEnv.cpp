@@ -1714,6 +1714,7 @@ BasicType JVMCIEnv::typeCharToBasicType(jchar ch, JVMCI_TRAPS) {
     case 'J': return T_LONG;
     case 'D': return T_DOUBLE;
     case 'A': return T_OBJECT;
+    case 'Q': return T_PRIMITIVE_OBJECT;
     case '-': return T_ILLEGAL;
     default:
       JVMCI_ERROR_(T_ILLEGAL, "unexpected type char: %c", ch);

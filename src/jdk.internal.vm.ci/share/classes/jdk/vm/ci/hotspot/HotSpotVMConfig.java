@@ -94,6 +94,10 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
 
     final int klassLayoutHelperNeutralValue = getConstant("Klass::_lh_neutral_value", Integer.class);
     final int klassLayoutHelperInstanceSlowPathBit = getConstant("Klass::_lh_instance_slow_path_bit", Integer.class);
+    final int klassLayoutHelperLog2ElementSizeShift = getConstant("Klass::_lh_log2_element_size_shift", Integer.class);
+    final int klassLayoutHelperLog2ElementSizeMask = getConstant("Klass::_lh_log2_element_size_mask", Integer.class);
+    final int klassKind = getFieldOffset("Klass::_kind", Integer.class, "Klass::KlassKind const");
+    final int klassFlatArray = getConstant("Klass::FlatArrayKlassKind", Integer.class);
 
     final int vtableEntrySize = getFieldValue("CompilerToVM::Data::sizeof_vtableEntry", Integer.class, "int");
     final int vtableEntryMethodOffset = getFieldOffset("vtableEntry::_method", Integer.class, "Method*");

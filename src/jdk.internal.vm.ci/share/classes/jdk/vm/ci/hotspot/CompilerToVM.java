@@ -23,26 +23,21 @@
 
 package jdk.vm.ci.hotspot;
 
-import java.lang.reflect.Executable;
-import java.lang.reflect.Field;
-
 import jdk.internal.misc.Unsafe;
 import jdk.vm.ci.code.BytecodeFrame;
 import jdk.vm.ci.code.InstalledCode;
 import jdk.vm.ci.code.InvalidInstalledCodeException;
 import jdk.vm.ci.code.stack.InspectedFrameVisitor;
 import jdk.vm.ci.common.InitTimer;
-import static jdk.vm.ci.common.InitTimer.timer;
 import jdk.vm.ci.common.JVMCIError;
 import jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.Option;
+import jdk.vm.ci.meta.*;
+
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
+
+import static jdk.vm.ci.common.InitTimer.timer;
 import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
-import jdk.vm.ci.meta.Constant;
-import jdk.vm.ci.meta.ConstantReflectionProvider;
-import jdk.vm.ci.meta.JavaConstant;
-import jdk.vm.ci.meta.JavaKind;
-import jdk.vm.ci.meta.JavaType;
-import jdk.vm.ci.meta.ResolvedJavaMethod;
-import jdk.vm.ci.meta.ResolvedJavaType;
 
 /**
  * Calls from Java into HotSpot. The behavior of all the methods in this class that take a native
@@ -74,6 +69,7 @@ final class CompilerToVM {
     final int ARRAY_FLOAT_BASE_OFFSET;
     final int ARRAY_DOUBLE_BASE_OFFSET;
     final int ARRAY_OBJECT_BASE_OFFSET;
+    final int ARRAY_PRIMITIVE_OBJECT_BASE_OFFSET;
     final int ARRAY_BOOLEAN_INDEX_SCALE;
     final int ARRAY_BYTE_INDEX_SCALE;
     final int ARRAY_SHORT_INDEX_SCALE;
@@ -97,6 +93,7 @@ final class CompilerToVM {
             ARRAY_FLOAT_BASE_OFFSET = arrayBaseOffset(JavaKind.Float.getTypeChar());
             ARRAY_DOUBLE_BASE_OFFSET = arrayBaseOffset(JavaKind.Double.getTypeChar());
             ARRAY_OBJECT_BASE_OFFSET = arrayBaseOffset(JavaKind.Object.getTypeChar());
+            ARRAY_PRIMITIVE_OBJECT_BASE_OFFSET = arrayBaseOffset('Q');
             ARRAY_BOOLEAN_INDEX_SCALE = arrayIndexScale(JavaKind.Boolean.getTypeChar());
             ARRAY_BYTE_INDEX_SCALE = arrayIndexScale(JavaKind.Byte.getTypeChar());
             ARRAY_SHORT_INDEX_SCALE = arrayIndexScale(JavaKind.Short.getTypeChar());

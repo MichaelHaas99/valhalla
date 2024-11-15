@@ -341,6 +341,11 @@ public class HotSpotMetaAccessProvider implements MetaAccessProvider {
     }
 
     @Override
+    public int getFlatArrayBaseOffset() {
+        return runtime.getFlatArrayBaseOffset();
+    }
+
+    @Override
     public int getArrayIndexScale(JavaKind kind) {
         return runtime.getArrayIndexScale(kind);
     }
