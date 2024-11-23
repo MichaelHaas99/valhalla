@@ -828,6 +828,7 @@
   declare_constant(markWord::inline_type_pattern)                         \
   declare_constant(markWord::inline_type_mask_in_place)                   \
   declare_constant(markWord::inline_type_bit_in_place)                    \
+  declare_constant(markWord::flat_array_pattern)                          \
 
 // Helper macro to support ZGC pattern where the function itself isn't exported
 #define DECLARE_FUNCTION_FROM_ADDR(declare_function_with_value, name) \
