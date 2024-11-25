@@ -40,6 +40,11 @@ public interface HotSpotResolvedObjectType extends ResolvedJavaType {
     HotSpotResolvedObjectType getArrayClass();
 
     @Override
+    HotSpotResolvedObjectType getFlatArrayClass();
+
+    HotSpotResolvedObjectType convertToFlatArray();
+
+    @Override
     ResolvedJavaType getComponentType();
 
     @Override
