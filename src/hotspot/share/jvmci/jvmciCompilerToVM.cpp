@@ -679,6 +679,24 @@ C2V_VMENTRY_NULL(jobject, getArrayType, (JNIEnv* env, jobject, jchar type_char, 
   return JVMCIENV->get_jobject(result);
 C2V_END
 
+C2V_VMENTRY_NULL(jobject, getFlatArrayType, (JNIEnv* env, jobject, jchar type_char, ARGUMENT_PAIR(klass)))
+  JVMCIKlassHandle array_klass(THREAD);
+  Klass* klass = UNPACK_PAIR(Klass, klass);
+
+  if(klass->is_inline_klass()){
+    InlineKlass* inline_klass = InlineKlass::cast(klass);
+    // Request a flat array, but we might not actually get it...either way "null-free" are the aaload/aastore semantics
+    ArrayKlass* flat_array_klass = (ArrayKlass*)inline_klass->value_array_klass(CHECK_NULL);
+    array_klass = flat_array_klass;
+    assert(array_klass->is_null_free_array_klass(), "Expect a null-free array class here");
+    //assert(array_klass->is_flatArray_klass, "Expect a flat array class here");
+  }else{
+    array_klass = klass->array_klass(CHECK_NULL);
+  }
+  JVMCIObject result = JVMCIENV->get_jvmci_type(array_klass, JVMCI_CHECK_NULL);
+  return JVMCIENV->get_jobject(result);
+C2V_END
+
 C2V_VMENTRY_NULL(jobject, lookupClass, (JNIEnv* env, jobject, jclass mirror))
   requireInHotSpot("lookupClass", JVMCI_CHECK_NULL);
   if (mirror == nullptr) {
@@ -3280,6 +3298,7 @@ JNINativeMethod CompilerToVM::methods[] = {
   {CC "lookupJClass",                                 CC "(J)" HS_RESOLVED_TYPE,                                                            FN_PTR(lookupJClass)},
   {CC "getJObjectValue",                              CC "(" OBJECTCONSTANT ")J",                                                           FN_PTR(getJObjectValue)},
   {CC "getArrayType",                                 CC "(C" HS_KLASS2 ")" HS_KLASS,                                                       FN_PTR(getArrayType)},
+  {CC "getFlatArrayType",                             CC "(C" HS_KLASS2 ")" HS_KLASS,                                                       FN_PTR(getFlatArrayType)},
   {CC "lookupClass",                                  CC "(" CLASS ")" HS_RESOLVED_TYPE,                                                    FN_PTR(lookupClass)},
   {CC "lookupNameInPool",                             CC "(" HS_CONSTANT_POOL2 "II)" STRING,                                                FN_PTR(lookupNameInPool)},
   {CC "lookupNameAndTypeRefIndexInPool",              CC "(" HS_CONSTANT_POOL2 "II)I",                                                      FN_PTR(lookupNameAndTypeRefIndexInPool)},

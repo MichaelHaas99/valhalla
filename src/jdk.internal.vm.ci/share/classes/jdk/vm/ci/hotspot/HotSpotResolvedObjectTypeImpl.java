@@ -690,6 +690,20 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
         return runtime().compilerToVm.getArrayType((char) 0, this);
     }
 
+    @Override
+    public HotSpotResolvedObjectTypeImpl getFlatArrayType() {
+        return runtime().compilerToVm.getFlatArrayType(this);
+    }
+
+    @Override
+    public HotSpotResolvedObjectTypeImpl convertToFlatArray() {
+        assert isArray() : "only an array class can be converted to flat array class";
+        ResolvedJavaType componentType = this.getComponentType();
+        assert componentType != null : "component type must not be null";
+        if (!(componentType instanceof HotSpotResolvedObjectTypeImpl)) return this;
+        return runtime().compilerToVm.getFlatArrayType((HotSpotResolvedObjectTypeImpl) componentType);
+    }
+
     /**
      * This class represents the field information for one field contained in the fields array of an
      * {@code InstanceKlass}. The implementation is similar to the native {@code FieldInfo} class.

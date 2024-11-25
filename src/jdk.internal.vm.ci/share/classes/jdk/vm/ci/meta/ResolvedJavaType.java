@@ -237,6 +237,10 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
     @Override
     ResolvedJavaType getArrayClass();
 
+    default ResolvedJavaType getFlatArrayClass() {
+        throw new UnsupportedOperationException();
+    }
+
     /**
      * Resolves the method implementation for virtual dispatches on objects of this dynamic type.
      * This resolution process only searches "up" the class hierarchy of this type. A broader search

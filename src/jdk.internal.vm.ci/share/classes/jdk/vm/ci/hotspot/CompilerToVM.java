@@ -1101,6 +1101,13 @@ final class CompilerToVM {
 
     native HotSpotResolvedObjectTypeImpl getArrayType(char typeChar, HotSpotResolvedObjectTypeImpl klass, long klassPointer);
 
+    HotSpotResolvedObjectTypeImpl getFlatArrayType(HotSpotResolvedObjectTypeImpl nonPrimitiveKlass) {
+        long nonPrimitiveKlassPointer = nonPrimitiveKlass.getKlassPointer();
+        return getFlatArrayType((char) 0, nonPrimitiveKlass, nonPrimitiveKlassPointer);
+    }
+
+    native HotSpotResolvedObjectTypeImpl getFlatArrayType(char typeChar, HotSpotResolvedObjectTypeImpl klass, long klassPointer);
+
     /**
      * Forces initialization of {@code klass}.
      */
