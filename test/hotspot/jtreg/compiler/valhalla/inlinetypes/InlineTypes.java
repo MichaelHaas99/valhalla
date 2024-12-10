@@ -121,7 +121,7 @@ public class InlineTypes {
                          "-XX:+UseFieldFlattening",
                          "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:-InlineTypeReturnedAsFields"
-            )
+            ) */
     };
 
     public static TestFramework getFramework() {

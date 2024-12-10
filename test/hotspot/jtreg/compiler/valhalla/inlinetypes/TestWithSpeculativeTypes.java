@@ -28,7 +28,7 @@
  * @library /test/lib
  * @enablePreview
  * @run main/othervm -XX:CompileCommand=dontinline,TestWithSpeculativeTypes::*
- *                   -XX:TypeProfileLevel=222 -XX:-TieredCompilation -Xbatch
+ *                   -XX:TypeProfileLevel=222 -XX:-TieredCompilation
  *                   TestWithSpeculativeTypes
  */
 

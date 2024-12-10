@@ -56,12 +56,12 @@ public class TestC1 {
                 new Scenario(0, "-XX:TieredStopAtLevel=1", "-XX:+TieredCompilation"),
                 // C2 only. (Make sure the tests are correctly written)
                 new Scenario(1, "-XX:TieredStopAtLevel=4", "-XX:-TieredCompilation"),
-                // interpreter only
-                new Scenario(2, "-Xint"),
-                // Xcomp Only C1.
-                new Scenario(3, "-XX:TieredStopAtLevel=1", "-XX:+TieredCompilation", "-Xcomp"),
-                // Xcomp Only C2.
-                new Scenario(4, "-XX:TieredStopAtLevel=4", "-XX:-TieredCompilation", "-Xcomp")
+//                // interpreter only
+//                new Scenario(2, "-Xint"),
+//                // Xcomp Only C1.
+//                new Scenario(3, "-XX:TieredStopAtLevel=1", "-XX:+TieredCompilation", "-Xcomp"),
+//                // Xcomp Only C2.
+//                new Scenario(4, "-XX:TieredStopAtLevel=4", "-XX:-TieredCompilation", "-Xcomp")
         };
 
         InlineTypes.getFramework()

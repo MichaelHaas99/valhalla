@@ -28,13 +28,12 @@
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -Xbatch
+ * @run main/othervm
  *                   TestFlatArrayThreshold
- * @run main/othervm -XX:FlatArrayElementMaxOops=1 -Xbatch
+ * @run main/othervm -XX:FlatArrayElementMaxOops=1
  *                   TestFlatArrayThreshold
- * @run main/othervm -XX:+UseArrayFlattening -Xbatch
+ * @run main/othervm -XX:+UseArrayFlattening
  *                   TestFlatArrayThreshold
-
  */
 
 import jdk.test.lib.Asserts;

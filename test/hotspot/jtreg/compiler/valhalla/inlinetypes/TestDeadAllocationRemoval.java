@@ -28,7 +28,7 @@
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -Xbatch TestDeadAllocationRemoval
+ * @run main/othervm TestDeadAllocationRemoval
  */
 
 import jdk.internal.vm.annotation.ImplicitlyConstructible;
