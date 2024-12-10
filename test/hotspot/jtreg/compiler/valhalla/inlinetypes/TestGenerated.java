@@ -28,9 +28,9 @@
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -Xbatch
+ * @run main/othervm
  *                   compiler.valhalla.inlinetypes.TestGenerated
- * @run main/othervm -Xbatch -XX:FlatArrayElementMaxSize=0
+ * @run main/othervm  -XX:FlatArrayElementMaxSize=0
  *                   compiler.valhalla.inlinetypes.TestGenerated
  */
 

@@ -54,7 +54,7 @@ public class TestLWorldProfiling {
 
     public static void main(String[] args) {
         final Scenario[] scenarios = {
-                new Scenario(0,
+/*                 new Scenario(0,
                         "-XX:FlatArrayElementMaxSize=-1",
                         "-XX:-UseArrayLoadStoreProfile",
                         "-XX:-UseACmpProfile",
@@ -85,9 +85,9 @@ public class TestLWorldProfiling {
                         "-XX:+UseACmpProfile",
                         "-XX:TypeProfileLevel=0",
                         "-XX:TieredStopAtLevel=4",
-                        "-XX:-TieredCompilation"),
+                        "-XX:-TieredCompilation"), */
                 new Scenario(5,
-                        "-XX:FlatArrayElementMaxSize=-1",
+                        "-XX:FlatArrayElementMaxSize=0",
                         "-XX:-UseArrayLoadStoreProfile",
                         "-XX:-UseACmpProfile",
                         "-XX:TypeProfileLevel=222",

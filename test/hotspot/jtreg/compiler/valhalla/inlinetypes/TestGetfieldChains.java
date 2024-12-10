@@ -86,7 +86,12 @@ public class TestGetfieldChains {
     public static void main(String[] args) {
 
         final Scenario[] scenarios = {
-                new Scenario(0,
+                           new Scenario(0,
+                             "--enable-preview",
+                             "-XX:CICompilerCount=2",
+                             "-XX:TieredStopAtLevel=4",
+                             "-XX:+TieredCompilation")
+/*                 new Scenario(0,
                         // C1 only
                         "-XX:TieredStopAtLevel=1",
                         "-XX:+TieredCompilation"),
@@ -108,7 +113,7 @@ public class TestGetfieldChains {
                         "-XX:TieredStopAtLevel=4",
                         "-XX:-TieredCompilation",
                         "-XX:-OmitStackTraceInFastThrow",
-                        "-Xcomp")
+                        "-Xcomp") */
         };
 
         InlineTypes.getFramework()

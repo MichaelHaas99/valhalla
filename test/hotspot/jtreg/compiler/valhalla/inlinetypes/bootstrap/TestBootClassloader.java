@@ -45,8 +45,10 @@ import jdk.internal.vm.annotation.NullRestricted;
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm InstallBootstrapClasses
  * @run main/othervm -Xbootclasspath/a:boot -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -Xbatch -XX:-TieredCompilation -XX:CompileCommand=compileonly,TestBootClassloader::test*
- *                   -XX:CompileCommand=inline,*::get* TestBootClassloader
+ *                   -Xbatch -XX:-TieredCompilation -XX:CompileCommand=compileonly,TestBootClassloader::test* -XX:CompileCommand=compileonly,*Wrapper1::get
+ *                   -XX:CompileCommand=compileonly,*Wrapper1::get* TestBootClassloader
+ *                   -XX:CompileCommand='print,*TestBootClassloader.test'
+ *                  -XX:CompileCommand='print,*Wrapper1.get'
  */
 
 public class TestBootClassloader {
@@ -99,6 +101,10 @@ public class TestBootClassloader {
             test2(wrapper2);
         }
         Method method = TestBootClassloader.class.getDeclaredMethod("test1", Wrapper1.class);
+        Asserts.assertTrue(WB.isMethodCompilable(method, COMP_LEVEL_FULL_OPTIMIZATION, false), "Test1 method not compilable");
+        Asserts.assertTrue(WB.isMethodCompiled(method), "Test1 method not compiled");
+
+        method = Wrapper1.class.getDeclaredMethod("get");
         Asserts.assertTrue(WB.isMethodCompilable(method, COMP_LEVEL_FULL_OPTIMIZATION, false), "Test1 method not compilable");
         Asserts.assertTrue(WB.isMethodCompiled(method), "Test1 method not compiled");
 

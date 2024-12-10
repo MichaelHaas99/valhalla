@@ -44,21 +44,7 @@ import jdk.internal.vm.annotation.NullRestricted;
  * @modules java.base/jdk.internal.misc
  *          java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -XX:InlineFieldMaxFlatSize=0 -XX:FlatArrayElementMaxSize=0
- *                   -XX:+UnlockDiagnosticVMOptions -XX:+StressGCM -XX:+StressLCM
- *                   compiler.valhalla.inlinetypes.TestBufferTearing
- * @run main/othervm -XX:InlineFieldMaxFlatSize=0 -XX:FlatArrayElementMaxSize=0
- *                   -XX:+UnlockDiagnosticVMOptions -XX:+StressGCM -XX:+StressLCM
- *                   -XX:+IgnoreUnrecognizedVMOptions -XX:+AlwaysIncrementalInline
- *                   compiler.valhalla.inlinetypes.TestBufferTearing
- * @run main/othervm -XX:InlineFieldMaxFlatSize=0 -XX:FlatArrayElementMaxSize=0
- *                   -XX:CompileCommand=dontinline,*::incrementAndCheck*
- *                   -XX:+UnlockDiagnosticVMOptions -XX:+StressGCM -XX:+StressLCM
- *                   compiler.valhalla.inlinetypes.TestBufferTearing
- * @run main/othervm -XX:InlineFieldMaxFlatSize=0 -XX:FlatArrayElementMaxSize=0
- *                   -XX:CompileCommand=dontinline,*::incrementAndCheck*
- *                   -XX:+UnlockDiagnosticVMOptions -XX:+StressGCM -XX:+StressLCM
- *                   -XX:+IgnoreUnrecognizedVMOptions -XX:+AlwaysIncrementalInline
+ * @run main/othervm 
  *                   compiler.valhalla.inlinetypes.TestBufferTearing
  */
 

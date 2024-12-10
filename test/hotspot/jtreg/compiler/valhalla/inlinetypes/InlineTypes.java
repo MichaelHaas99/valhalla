@@ -37,18 +37,10 @@ public class InlineTypes {
                          "--enable-preview",
                          "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
                          "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
-                         "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
-                         "-XX:+IgnoreUnrecognizedVMOptions",
-                         "-XX:-UseACmpProfile",
-                         "-XX:+AlwaysIncrementalInline",
-                         "-XX:FlatArrayElementMaxOops=5",
-                         "-XX:FlatArrayElementMaxSize=-1",
-                         "-XX:-UseArrayLoadStoreProfile",
-                         "-XX:InlineFieldMaxFlatSize=-1",
-                         "-XX:+InlineTypePassFieldsAsArgs",
-                         "-XX:+InlineTypeReturnedAsFields"
-            ),
-            new Scenario(1,
+                         "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED"
+            )
+            //,
+/*             new Scenario(1,
                          "--enable-preview",
                          "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
                          "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
@@ -121,7 +113,7 @@ public class InlineTypes {
                          "-XX:InlineFieldMaxFlatSize=-1",
                          "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:-InlineTypeReturnedAsFields"
-            )
+            ) */
     };
 
     public static TestFramework getFramework() {

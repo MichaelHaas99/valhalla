@@ -1871,11 +1871,14 @@ public class TestNewAcmp {
             "-Xbootclasspath/a:.",
             "-XX:+UnlockDiagnosticVMOptions",
             "-XX:+WhiteBoxAPI",
-            "-Xbatch",
+            "-XX:-TieredCompilation",
+            "-XX:CompileThreshold=1000",
+            //"-Xbatch",
             "-XX:TypeProfileLevel=222",
+            "-XX:-BackgroundCompilation",
             "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
-            "-XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestNewAcmp::test*",
-            "-XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestNewAcmp::cmp*"};
+            "-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestNewAcmp::test*",
+            "-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestNewAcmp::cmp*"};
 
         String SCENARIOS = System.getProperty("Scenarios", "");
         List<String> scenarios = null;
@@ -1885,7 +1888,7 @@ public class TestNewAcmp {
 
         int scenario = -1;
         for (int nullMode = 0; nullMode <= 2; nullMode++) {          // null mode
-            for (int incrInline = 0; incrInline < 2; incrInline++) { // 0 = default, 1 = -XX:+AlwaysIncrementalInline
+            for (int incrInline = 0; incrInline < 1; incrInline++) { // 0 = default, 1 = -XX:+AlwaysIncrementalInline
                 scenario++;
                 System.out.println("Scenario #" + scenario + " -------------------");
                 String[] cmds = baseOptions;

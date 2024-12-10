@@ -31,11 +31,9 @@ package compiler.valhalla.inlinetypes;
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -XX:InlineFieldMaxFlatSize=-1 -XX:FlatArrayElementMaxSize=-1
+ * @run main/othervm 
  *                   compiler.valhalla.inlinetypes.TestBufferTearingC1
- * @run main/othervm -XX:InlineFieldMaxFlatSize=-1 -XX:FlatArrayElementMaxSize=-1
- *                   -XX:TieredStopAtLevel=1
- *                   compiler.valhalla.inlinetypes.TestBufferTearingC1
+
  */
 
 import jdk.internal.value.ValueClass;

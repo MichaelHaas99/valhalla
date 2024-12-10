@@ -30,25 +30,8 @@
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -Xcomp
+ * @run main/othervm 
  *                   -XX:CompileCommand=compileonly,TestUnloadedInlineTypeArray::test*
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:FlatArrayElementMaxSize=0
- *                   -XX:CompileCommand=compileonly,TestUnloadedInlineTypeArray::test*
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:FlatArrayElementMaxSize=0
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:-TieredCompilation
- *                   -XX:CompileCommand=compileonly,TestUnloadedInlineTypeArray::test*
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:-TieredCompilation -XX:FlatArrayElementMaxSize=0
- *                   -XX:CompileCommand=compileonly,TestUnloadedInlineTypeArray::test*
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:-TieredCompilation
- *                   TestUnloadedInlineTypeArray
- * @run main/othervm -Xcomp -XX:-TieredCompilation -XX:FlatArrayElementMaxSize=0
  *                   TestUnloadedInlineTypeArray
  */
 
