@@ -45,6 +45,8 @@
 #include "oops/objArrayKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/typeArrayOop.inline.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/methodHandles.hpp"
 #include "runtime/arguments.hpp"
@@ -54,6 +56,7 @@
 #include "runtime/frame.inline.hpp"
 #include "runtime/java.hpp"
 #include "runtime/jniHandles.inline.hpp"
+#include "runtime/handles.inline.hpp"
 #include "runtime/mutex.hpp"
 #include "runtime/reflection.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -439,21 +442,23 @@ JRT_ENTRY(jint, JVMCIRuntime::value_object_hashCode(JavaThread* current, oopDesc
   return result.get_jint();
 JRT_END
 
-JRT_BLOCK_ENTRY(void, JVMCIRuntime::load_unknown_inline(JavaThread* current, oopDesc* array, jint index))
-  JRT_BLOCK;
+JRT_ENTRY(void, JVMCIRuntime::load_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index))
   assert(array->klass()->is_flatArray_klass(), "should not be called");
-  flatArrayOopDesc* flat_array = (flatArrayOopDesc*) array;
-  flatArrayHandle vah(current, flat_array);
-  oop obj = flatArrayOopDesc::value_alloc_copy_from_index(vah, index, current);
+
+  assert(array->length() > 0 && index < array->length(), "already checked");
+  flatArrayHandle vah(current, array);
+  oop obj = flatArrayOopDesc::value_alloc_copy_from_index(vah, index, CHECK);
   current->set_vm_result(obj);
-  JRT_BLOCK_END;
 JRT_END
 
-JRT_LEAF(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, oopDesc* array, jint index, oopDesc* value))
-  assert(array->klass()->is_flatArray_klass(), "should not be called");
-  assert(value != nullptr, "can't store null into flat array");
-  flatArrayOopDesc* flat_array = (flatArrayOopDesc*) array;
-  flat_array->value_copy_to_index(value, index);
+JRT_ENTRY(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index, oopDesc* value))
+  if (value == nullptr) {
+    assert(array->klass()->is_flatArray_klass() || array->klass()->is_null_free_array_klass(), "should not be called");
+    SharedRuntime::throw_and_post_jvmti_exception(current, vmSymbols::java_lang_NullPointerException());
+  } else {
+    assert(array->klass()->is_flatArray_klass(), "should not be called");
+    array->value_copy_to_index(value, index);
+  }
 JRT_END
 
 // Object.notifyAll() fast path, caller does slow path

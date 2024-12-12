@@ -30,6 +30,9 @@
 #include "jvmci/jvmci.hpp"
 #include "jvmci/jvmciExceptions.hpp"
 #include "jvmci/jvmciObject.hpp"
+#include "runtime/handles.inline.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
 #include "utilities/linkedlist.hpp"
 #if INCLUDE_G1GC
 #include "gc/g1/g1CardTable.hpp"
@@ -528,8 +531,8 @@ class JVMCIRuntime: public CHeapObj<mtJVMCI> {
   static jboolean object_notify(JavaThread* current, oopDesc* obj);
   static jboolean object_notifyAll(JavaThread* current, oopDesc* obj);
   static jboolean substitutability_check(JavaThread* current, oopDesc* left, oopDesc* right);
-  static void load_unknown_inline(JavaThread* thread, oopDesc* array, jint index);
-  static void store_unknown_inline(JavaThread* thread, oopDesc* array, jint index, oopDesc* value);
+  static void load_unknown_inline(JavaThread* thread, flatArrayOopDesc* array, jint index);
+  static void store_unknown_inline(JavaThread* thread, flatArrayOopDesc* array, jint index, oopDesc* value);
 
   static void vm_error(JavaThread* current, jlong where, jlong format, jlong value);
   static oopDesc* load_and_clear_exception(JavaThread* thread);
