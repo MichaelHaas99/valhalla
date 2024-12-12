@@ -439,6 +439,21 @@ JRT_ENTRY(jint, JVMCIRuntime::value_object_hashCode(JavaThread* current, oopDesc
   return result.get_jint();
 JRT_END
 
+JRT_BLOCK_ENTRY(void, JVMCIRuntime::load_unknown_inline(JavaThread* current, flatArrayOopDesc* array, int index))
+  JRT_BLOCK;
+  flatArrayHandle vah(current, array);
+  oop buffer = flatArrayOopDesc::value_alloc_copy_from_index(vah, index, THREAD);
+  current->set_vm_result(buffer);
+  JRT_BLOCK_END;
+JRT_END
+
+JRT_LEAF(void, JVMCIRuntime::store_unknown_inline(instanceOopDesc* buffer, flatArrayOopDesc* array, int index))
+{
+  assert(buffer != nullptr, "can't store null into flat array");
+  array->value_copy_to_index(buffer, index);
+}
+JRT_END
+
 // Object.notifyAll() fast path, caller does slow path
 JRT_LEAF(jboolean, JVMCIRuntime::object_notifyAll(JavaThread* current, oopDesc* obj))
   assert(current == JavaThread::current(), "pre-condition");
