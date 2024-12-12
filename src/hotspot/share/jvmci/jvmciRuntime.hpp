@@ -528,8 +528,8 @@ class JVMCIRuntime: public CHeapObj<mtJVMCI> {
   static jboolean object_notify(JavaThread* current, oopDesc* obj);
   static jboolean object_notifyAll(JavaThread* current, oopDesc* obj);
   static jboolean substitutability_check(JavaThread* current, oopDesc* left, oopDesc* right);
-  static void load_unknown_inline(JavaThread* thread, flatArrayOopDesc* array, int index);
-  static void store_unknown_inline(instanceOopDesc* buffer, flatArrayOopDesc* array, int index);
+  static void load_unknown_inline(JavaThread* thread, oopDesc* array, jint index);
+  static void store_unknown_inline(JavaThread* thread, oopDesc* array, jint index, oopDesc* value);
 
   static void vm_error(JavaThread* current, jlong where, jlong format, jlong value);
   static oopDesc* load_and_clear_exception(JavaThread* thread);
