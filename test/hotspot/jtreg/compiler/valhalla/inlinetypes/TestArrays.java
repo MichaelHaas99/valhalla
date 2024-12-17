@@ -65,6 +65,8 @@ public class TestArrays {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestArrays.class).setGraalLog()
+                //.addFlags("-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrays::test*")
                    .addHelperClasses(MyValue1.class, MyValue2.class, MyValue2Inline.class)
                    .start();
     }

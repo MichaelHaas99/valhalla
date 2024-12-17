@@ -31,11 +31,11 @@
  *          java.base/jdk.internal.vm.annotation
  * @run main/othervm -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
- *                   -Xbatch
+ *
  *                   compiler.valhalla.inlinetypes.TestArrayCopyWithOops
  * @run main/othervm -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
- *                   -Xbatch -XX:-UseArrayFlattening
+ *                   -XX:-UseArrayFlattening
  *                   compiler.valhalla.inlinetypes.TestArrayCopyWithOops
  * @run main/othervm compiler.valhalla.inlinetypes.TestArrayCopyWithOops
  */

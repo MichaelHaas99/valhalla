@@ -64,6 +64,7 @@ public class TestLWorld {
         // Make sure Test141Value is linked but not initialized
         Class<?> class2 = Test141Value.class;
         class2.getDeclaredFields();
+        //System.out.println(TestLWorld.class.getCanonicalName()+"\n\n\n\n");
 
         Scenario[] scenarios = InlineTypes.DEFAULT_SCENARIOS;
         scenarios[3].addFlags("-XX:-MonomorphicArrayCheck", "-XX:+UseArrayFlattening");
@@ -71,6 +72,8 @@ public class TestLWorld {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestLWorld.class).setGraalLog()
+                //.addFlags("-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestLWorld::test*")
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class,
                                      MyValue2Inline.class,

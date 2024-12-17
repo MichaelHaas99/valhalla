@@ -43,8 +43,9 @@ public class TestAllocationMergeAndFolding {
     public static void main(String[] args) {
         InlineTypes.getFramework()
                 .addScenarios(InlineTypes.DEFAULT_SCENARIOS)
-                //.addScenarios(new Scenario(6, "--enable-preview", "-XX:-UseCompressedOops"))
-                //.addScenarios(new Scenario(7, "--enable-preview", "-XX:+UseCompressedOops"))
+                .addScenarios(new Scenario(6, "--enable-preview", "-XX:-UseCompressedOops"))
+                .addScenarios(new Scenario(7, "--enable-preview", "-XX:+UseCompressedOops"))
+                .setCompileOnlyTestMethods(TestAllocationMergeAndFolding.class).setGraalLog()
                 .start();
     }
 

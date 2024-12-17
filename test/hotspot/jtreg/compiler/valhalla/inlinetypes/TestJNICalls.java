@@ -49,6 +49,7 @@ public class TestJNICalls {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestJNICalls.class).setGraalLog()
                    .addHelperClasses(MyValue1.class)
                    .start();
     }

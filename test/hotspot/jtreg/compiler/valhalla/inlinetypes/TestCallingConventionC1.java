@@ -64,8 +64,8 @@ public class TestCallingConventionC1 {
                              "-XX:CICompilerCount=2",
                              "-XX:TieredStopAtLevel=4",
                              "-XX:+TieredCompilation",
-                             "-XX:+IgnoreUnrecognizedVMOptions"/*,
-                             "-XX:+StressInlineTypeReturnedAsFields"*/),
+                             "-XX:+IgnoreUnrecognizedVMOptions",
+                             "-XX:+StressInlineTypeReturnedAsFields"),
                 // Same as above, but flip all the compLevel=CompLevel.C1_SIMPLE and compLevel=CompLevel.C2, so we test
                 // the compliment of the above scenario.
                 new Scenario(2,
@@ -80,19 +80,20 @@ public class TestCallingConventionC1 {
                              "-XX:TieredStopAtLevel=1",
                              "-XX:+TieredCompilation",
                              "-XX:+IgnoreUnrecognizedVMOptions",
-                             "-XX:-PatchALot")/*,
+                             "-XX:-PatchALot"),
                              
                 // Only C2.
                 new Scenario(4,
                              "--enable-preview",
                              "-XX:TieredStopAtLevel=4",
-                             "-XX:-TieredCompilation") */
+                             "-XX:-TieredCompilation")
         };
 
         System.gc(); // Resolve this call, to avoid C1 code patching in the test cases.
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestCallingConventionC1.class).setGraalLog()
                    .start();
     }
 

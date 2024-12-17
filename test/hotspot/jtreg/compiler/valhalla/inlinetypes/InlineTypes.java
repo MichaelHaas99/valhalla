@@ -62,6 +62,8 @@ public class InlineTypes {
                          "-XX:+UseFieldFlattening",
                          "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:-InlineTypeReturnedAsFields"
+
+
             ),
             new Scenario(2,
                          "--enable-preview",
@@ -121,11 +123,13 @@ public class InlineTypes {
                          "-XX:+UseFieldFlattening",
                          "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:-InlineTypeReturnedAsFields"
-            ) */
+            )
     };
 
     public static TestFramework getFramework() {
         StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
-        return new TestFramework(walker.getCallerClass()).setDefaultWarmup(251);
+        TestFramework framework = new TestFramework(walker.getCallerClass()).setDefaultWarmup(251);
+        framework.addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363");
+        return framework;
     }
 }
