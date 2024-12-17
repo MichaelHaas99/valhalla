@@ -55,13 +55,14 @@ public class TestValueClasses {
     public static void main(String[] args) {
         Scenario[] scenarios = InlineTypes.DEFAULT_SCENARIOS;
         // Don't generate bytecodes but call through runtime for reflective calls
-/*         scenarios[0].addFlags("-Dsun.reflect.inflationThreshold=10000");
+        scenarios[0].addFlags("-Dsun.reflect.inflationThreshold=10000");
         scenarios[1].addFlags("-Dsun.reflect.inflationThreshold=10000");
         scenarios[3].addFlags("-XX:-MonomorphicArrayCheck", "-XX:FlatArrayElementMaxSize=-1");
-        scenarios[4].addFlags("-XX:-UseTLAB", "-XX:-MonomorphicArrayCheck"); */
+        scenarios[4].addFlags("-XX:-UseTLAB", "-XX:-MonomorphicArrayCheck");
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestValueClasses.class).setGraalLog()
                    .addHelperClasses(MyValueClass1.class,
                                      MyValueClass2.class,
                                      MyValueClass2Inline.class)

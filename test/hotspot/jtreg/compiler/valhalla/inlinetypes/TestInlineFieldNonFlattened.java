@@ -94,9 +94,10 @@ public class TestInlineFieldNonFlattened {
         testFramework.setDefaultWarmup(10000)
                      .addFlags("--enable-preview",
                                "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
-                               "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED"/*,
+                               "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
                                "-XX:-TieredCompilation",
-                               "-XX:InlineFieldMaxFlatSize=0"*/)
+                               "-XX:InlineFieldMaxFlatSize=0")
+                .setCompileOnlyTestMethods(TestInlineFieldNonFlattened.class).setGraalLog()
                      .start();
     }
 }

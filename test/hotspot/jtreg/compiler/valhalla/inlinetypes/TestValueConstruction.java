@@ -37,8 +37,167 @@ import jdk.test.whitebox.WhiteBox;
  * @enablePreview
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
- * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -Xbatch
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=DeoptimizeALot
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -Xbatch -XX:+IgnoreUnrecognizedVMOptions -XX:+DeoptimizeALot
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=CompileonlyTest
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test*
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/**
+ * @test id=DontInlineHelper
+ * @summary Test construction of value objects.
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:CompileCommand=dontinline,compiler*::helper*
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=DontInlineMyValueInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:CompileCommand=dontinline,*MyValue*::<init>
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=DontInlineObjectInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:CompileCommand=dontinline,*Object::<init>
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=DontInlineObjectInitDeoptimizeALot
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -XX:+IgnoreUnrecognizedVMOptions
+ *                   -XX:+DeoptimizeALot -XX:CompileCommand=dontinline,*Object::<init>
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=DontInlineMyAbstractInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:CompileCommand=dontinline,*MyAbstract::<init>
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=StressIncrementalInlining
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=StressIncrementalInliningCompileOnlyTest
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test*
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/* @test id=StressIncrementalInliningDontInlineMyValueInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   -XX:CompileCommand=dontinline,*MyValue*::<init>
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=StressIncrementalInliningDontInlineObjectInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   -XX:CompileCommand=dontinline,*Object::<init>
+ *                   compiler.valhalla.inlinetypes.TestValueConstruction
+ */
+
+/*
+ * @test id=StressIncrementalInliningDontInlineMyAbstractInit
+ * @key randomness
+ * @library /testlibrary /test/lib /compiler/whitebox /
+ * @enablePreview
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
+ *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
+ *                   -XX:CompileCommand=dontinline,*MyAbstract::<init>
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
 

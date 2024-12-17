@@ -70,25 +70,29 @@ public class TestFlatInArraysFolding {
     static int iFld;
 
     public static void main(String[] args) {
-        //Scenario flatArrayElementMaxSize1Scenario = new Scenario(1, "-XX:FlatArrayElementMaxSize=1");
-        //Scenario flatArrayElementMaxSize4Scenario = new Scenario(2, "-XX:FlatArrayElementMaxSize=4");
-        Scenario noFlagsScenario = new Scenario(1);
+        Scenario flatArrayElementMaxSize1Scenario = new Scenario(1, "-XX:FlatArrayElementMaxSize=1");
+        Scenario flatArrayElementMaxSize4Scenario = new Scenario(2, "-XX:FlatArrayElementMaxSize=4");
+        Scenario noFlagsScenario = new Scenario(3);
+//        Scenario flatArrayElementMaxSize1Scenario = new Scenario(1, "-XX:FlatArrayElementMaxSize=1");
+//        Scenario flatArrayElementMaxSize4Scenario = new Scenario(2, "-XX:FlatArrayElementMaxSize=4");
+//        Scenario noFlagsScenario = new Scenario(1);
         TestFramework testFramework = new TestFramework();
         testFramework.setDefaultWarmup(0)
                 .addFlags("--enable-preview",
                           "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
                           "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED")
-                .addScenarios(/*flatArrayElementMaxSize1Scenario,
-                              flatArrayElementMaxSize4Scenario, */noFlagsScenario);
+                .addScenarios(flatArrayElementMaxSize1Scenario,
+                              flatArrayElementMaxSize4Scenario, noFlagsScenario);
 
-/*         if (args.length > 0) {
+         if (args.length > 0) {
             // Disable Loop Unrolling for IR matching in testCmpP().
             // Use IgnoreUnrecognizedVMOptions since LoopMaxUnroll is a C2 flag.
             // testSubTypeCheck() only triggers with SerialGC.
             Scenario serialGCScenario = new Scenario(4, "-XX:+UseSerialGC", "-XX:+IgnoreUnrecognizedVMOptions",
                                                      "-XX:LoopMaxUnroll=0");
             testFramework.addScenarios(serialGCScenario);
-        } */
+        }
+        testFramework.setCompileOnlyTestMethods(TestFlatInArraysFolding.class).setGraalLog();
         testFramework.start();
     }
 

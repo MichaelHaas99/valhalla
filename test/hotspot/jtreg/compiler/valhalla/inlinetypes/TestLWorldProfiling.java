@@ -54,7 +54,7 @@ public class TestLWorldProfiling {
 
     public static void main(String[] args) {
         final Scenario[] scenarios = {
-/*                 new Scenario(0,
+                 new Scenario(0,
                         "-XX:FlatArrayElementMaxSize=-1",
                         "-XX:-UseArrayLoadStoreProfile",
                         "-XX:-UseACmpProfile",
@@ -85,9 +85,9 @@ public class TestLWorldProfiling {
                         "-XX:+UseACmpProfile",
                         "-XX:TypeProfileLevel=0",
                         "-XX:TieredStopAtLevel=4",
-                        "-XX:-TieredCompilation"), */
+                        "-XX:-TieredCompilation"),
                 new Scenario(5,
-                        "-XX:FlatArrayElementMaxSize=0",
+                        "-XX:FlatArrayElementMaxSize=-1",
                         "-XX:-UseArrayLoadStoreProfile",
                         "-XX:-UseACmpProfile",
                         "-XX:TypeProfileLevel=222",
@@ -100,9 +100,10 @@ public class TestLWorldProfiling {
                    .addScenarios(scenarios)
                    .addFlags("-XX:+IgnoreUnrecognizedVMOptions", "--enable-preview",
                              "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
-                             "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED")
+                             "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED", "-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestLWorldProfiling::test*")
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class)
+                .setCompileOnlyTestMethods(TestLWorldProfiling.class).setGraalLog()
                    .start();
     }
 

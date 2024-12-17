@@ -30,6 +30,10 @@
  *          java.base/jdk.internal.vm.annotation
  * @run main/othervm 
  *                   TestFlatArrayThreshold
+ * @run main/othervm -XX:FlatArrayElementMaxOops=1
+ *                   TestFlatArrayThreshold
+ * @run main/othervm -XX:FlatArrayElementMaxSize=1
+ *                   TestFlatArrayThreshold
  */
 
 import jdk.test.lib.Asserts;

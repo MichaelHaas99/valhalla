@@ -51,10 +51,11 @@ public class TestOnStackReplacement {
 
     public static void main(String[] args) throws Throwable {
         Scenario[] scenarios = InlineTypes.DEFAULT_SCENARIOS;
-        //scenarios[3].addFlags("-XX:FlatArrayElementMaxSize=0");
+        scenarios[3].addFlags("-XX:FlatArrayElementMaxSize=0");
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestOnStackReplacement.class).setGraalLog()
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class,
                                      MyValue2Inline.class,

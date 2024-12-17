@@ -68,6 +68,7 @@ public class TestUnloadedInlineTypeField {
                              "-DIgnoreCompilerControls=true",
                              // Some tests trigger frequent re-compilation. Don't mark them as non-compilable.
                              "-XX:PerMethodRecompilationCutoff=-1", "-XX:PerBytecodeRecompilationCutoff=-1")
+                .setCompileOnlyTestMethods(TestUnloadedInlineTypeField.class).setGraalLog()
                    .start();
     }
 
