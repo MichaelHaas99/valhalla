@@ -451,14 +451,9 @@ JRT_ENTRY(void, JVMCIRuntime::load_unknown_inline(JavaThread* current, flatArray
   current->set_vm_result(obj);
 JRT_END
 
-JRT_ENTRY(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index, oopDesc* value))
-  if (value == nullptr) {
-    assert(array->klass()->is_flatArray_klass() || array->klass()->is_null_free_array_klass(), "should not be called");
-    SharedRuntime::throw_and_post_jvmti_exception(current, vmSymbols::java_lang_NullPointerException());
-  } else {
+JRT_LEAF(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index, oopDesc* value))
     assert(array->klass()->is_flatArray_klass(), "should not be called");
     array->value_copy_to_index(value, index);
-  }
 JRT_END
 
 // Object.notifyAll() fast path, caller does slow path
