@@ -704,6 +704,11 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
         return runtime().compilerToVm.getFlatArrayType((HotSpotResolvedObjectTypeImpl) componentType);
     }
 
+    @Override
+    public JavaConstant getDefaultInlineTypeInstance() {
+        return runtime().compilerToVm.getDefaultInlineTypeInstance(this);
+    }
+
     /**
      * This class represents the field information for one field contained in the fields array of an
      * {@code InstanceKlass}. The implementation is similar to the native {@code FieldInfo} class.

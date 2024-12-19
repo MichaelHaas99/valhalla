@@ -79,6 +79,14 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
     }
 
     /**
+     * Determines if a null-restricted static field is already initialized. Such a field, for example, is not derived
+     * from a class file.
+     */
+    default boolean isInitialized() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
      * Determines if this field is a null free inline type. Such a field, for example, is not derived
      * from a class file.
      */

@@ -44,6 +44,8 @@ public interface HotSpotResolvedObjectType extends ResolvedJavaType {
 
     HotSpotResolvedObjectType convertToFlatArray();
 
+    JavaConstant getDefaultInlineTypeInstance();
+
     @Override
     ResolvedJavaType getComponentType();
 
