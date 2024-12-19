@@ -697,6 +697,15 @@ C2V_VMENTRY_NULL(jobject, getFlatArrayType, (JNIEnv* env, jobject, jchar type_ch
   return JVMCIENV->get_jobject(result);
 C2V_END
 
+C2V_VMENTRY_NULL(jobject, getDefaultInlineTypeInstance, (JNIEnv* env, jobject, ARGUMENT_PAIR(klass)))
+  JVMCIKlassHandle array_klass(THREAD);
+  Klass* klass = UNPACK_PAIR(Klass, klass);
+
+  assert(klass->is_inline_klass(), "Should only be called for inline types");
+  oop default_value = InlineKlass::cast(klass)->default_value();
+  return JVMCIENV->get_jobject(JVMCIENV->get_object_constant(default_value));
+C2V_END
+
 C2V_VMENTRY_NULL(jobject, lookupClass, (JNIEnv* env, jobject, jclass mirror))
   requireInHotSpot("lookupClass", JVMCI_CHECK_NULL);
   if (mirror == nullptr) {
@@ -3299,6 +3308,7 @@ JNINativeMethod CompilerToVM::methods[] = {
   {CC "getJObjectValue",                              CC "(" OBJECTCONSTANT ")J",                                                           FN_PTR(getJObjectValue)},
   {CC "getArrayType",                                 CC "(C" HS_KLASS2 ")" HS_KLASS,                                                       FN_PTR(getArrayType)},
   {CC "getFlatArrayType",                             CC "(C" HS_KLASS2 ")" HS_KLASS,                                                       FN_PTR(getFlatArrayType)},
+  {CC "getDefaultInlineTypeInstance",                 CC "(" HS_KLASS2 ")" JAVACONSTANT,                                                   FN_PTR(getDefaultInlineTypeInstance)},
   {CC "lookupClass",                                  CC "(" CLASS ")" HS_RESOLVED_TYPE,                                                    FN_PTR(lookupClass)},
   {CC "lookupNameInPool",                             CC "(" HS_CONSTANT_POOL2 "II)" STRING,                                                FN_PTR(lookupNameInPool)},
   {CC "lookupNameAndTypeRefIndexInPool",              CC "(" HS_CONSTANT_POOL2 "II)I",                                                      FN_PTR(lookupNameAndTypeRefIndexInPool)},

@@ -26,6 +26,7 @@ import jdk.internal.vm.VMSupport;
 import jdk.vm.ci.meta.*;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 
@@ -112,6 +113,12 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     @Override
     public boolean isFlat() {
         return (internalFlags & (1 << config().jvmFieldFlagFlatShift)) != 0;
+    }
+
+    @Override
+    public boolean isInitialized() {
+        assert isStatic() : "should only be called on static fields";
+        return UNSAFE.getAddress(holder.getKlassPointer(), this.offset) != 0;
     }
 
     @Override
