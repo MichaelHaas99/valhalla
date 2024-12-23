@@ -489,9 +489,15 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
 
     boolean hasScalarizedReturn();
 
+    boolean hasScalarizedReceiver();
+
     HotSpotSignature getScalarizedSignature();
 
     ResolvedJavaType[] getScalarizedReturn();
 
     ResolvedJavaType[] getScalarizedParameters();
+
+    ResolvedJavaType[] getScalarizedParameter(int index);
+
+    ResolvedJavaType[] getScalarizedReceiver();
 }

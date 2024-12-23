@@ -781,7 +781,8 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     @Override
     // see ciMethod::is_scalarized_arg
     public boolean isScalarizedParameter(int index) {
-        return compilerToVM().isScalarizedParameter(this, index);
+        // if method is non-static index 0 refers to receiver, therefore adapt the index
+        return compilerToVM().isScalarizedParameter(this, index + (isStatic() ? 0 : 1));
     }
 
     @Override
@@ -809,7 +810,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
      * see TypeTuple::make_range in opto/type.cpp
      */
     public ResolvedJavaType[] getScalarizedReturn() {
-        if (!returnsInlineType() || hasScalarizedReturn()) return null;
+        assert hasScalarizedReturn() : "Scalarized return presumed";
         HotSpotResolvedObjectType returnType = getReturnedInlineType();
         ResolvedJavaField[] fields = returnType.getInstanceFields(true);
 
@@ -818,8 +819,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         types[0] = returnType;
         for (int i = 1; i < types.length - 1; i++) {
             JavaType type = fields[i - 1].getType();
-            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
-            types[i] = (ResolvedJavaType) type;
+            types[i] = type.resolve(getDeclaringClass());
         }
         types[types.length - 1] = HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean);
         return types;
@@ -841,22 +841,24 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         return (HotSpotResolvedObjectTypeImpl) signature.getReturnType(getDeclaringClass());
     }
 
+    @Override
     public ResolvedJavaType[] getScalarizedParameter(int index) {
-        assert isScalarizedParameter(index) : "Expected scalarized parameter";
+        assert isScalarizedParameter(index) : "Scalarized parameter presumed";
         JavaType type = signature.getParameterType(index, getDeclaringClass());
-        assert type instanceof ResolvedJavaType : "Resolved Java type expected";
-        ResolvedJavaType resolvedType = (ResolvedJavaType) type;
+        ResolvedJavaType resolvedType = type.resolve(getDeclaringClass());
         assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
-        return (ResolvedJavaType[]) getFields((HotSpotResolvedObjectTypeImpl) resolvedType, true).toArray();
+        return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, true);
     }
 
+    @Override
     public boolean hasScalarizedReceiver() {
-        return !isStatic() && isScalarizedParameter(0);
+        return !isStatic() && compilerToVM().isScalarizedParameter(this, 0);
     }
 
+    @Override
     public ResolvedJavaType[] getScalarizedReceiver() {
-        assert hasScalarizedReceiver() : "Expected scalarized receiver";
-        return (ResolvedJavaType[]) getFields(getDeclaringClass(), false).toArray();
+        assert hasScalarizedReceiver() : "Scalarized receiver presumed";
+        return getFieldsArray(getDeclaringClass(), false);
     }
 
     @Override
@@ -865,16 +867,16 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
      * see TypeTuple::make_domain in opto/type.cpp
      */
     public ResolvedJavaType[] getScalarizedParameters() {
+        assert hasScalarizedParameters() : "Any scalarized parameters presumed";
         ArrayList<ResolvedJavaType> types = new ArrayList<>();
-        if (!isStatic() && isScalarizedParameter(0)) {
+        if (hasScalarizedReceiver()) {
             types.addAll(getFields(getDeclaringClass(), false));
         }
         for (int i = 0; i < signature.getParameterCount(false); i++) {
             JavaType type = signature.getParameterType(i, getDeclaringClass());
-            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
-            ResolvedJavaType resolvedType = (ResolvedJavaType) type;
+            ResolvedJavaType resolvedType = type.resolve(getDeclaringClass());
 
-            if (isScalarizedParameter(i + (isStatic() ? 0 : 1))) {
+            if (isScalarizedParameter(i)) {
                 assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
                 types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, true));
             } else {
@@ -891,10 +893,15 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         ArrayList<ResolvedJavaType> types = new ArrayList<>(fields.length + (isInit ? 1 : 0));
         for (int i = 0; i < fields.length; i++) {
             JavaType type = fields[i].getType();
-            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
-            types.add((ResolvedJavaType) type);
+            ResolvedJavaType resolvedType = type.resolve(holder);
+            types.add(resolvedType);
         }
         if (isInit) types.add(HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean));
         return types;
+    }
+
+    private static ResolvedJavaType[] getFieldsArray(HotSpotResolvedObjectTypeImpl holder, boolean isInit) {
+        ArrayList<ResolvedJavaType> list = getFields(holder, isInit);
+        return list.toArray(new ResolvedJavaType[list.size()]);
     }
 }
