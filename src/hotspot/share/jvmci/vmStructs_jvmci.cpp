@@ -553,7 +553,10 @@
   declare_constant_with_value("OMCache::oop_to_monitor_difference", OMCache::oop_to_monitor_difference()) \
                                                                           \
   declare_constant(CodeInstaller::VERIFIED_ENTRY)                         \
+  declare_constant(CodeInstaller::VERIFIED_INLINE_ENTRY)                  \
+  declare_constant(CodeInstaller::VERIFIED_INLINE_ENTRY_RO)               \
   declare_constant(CodeInstaller::UNVERIFIED_ENTRY)                       \
+  declare_constant(CodeInstaller::INLINE_ENTRY)                           \
   declare_constant(CodeInstaller::OSR_ENTRY)                              \
   declare_constant(CodeInstaller::EXCEPTION_HANDLER_ENTRY)                \
   declare_constant(CodeInstaller::DEOPT_HANDLER_ENTRY)                    \
