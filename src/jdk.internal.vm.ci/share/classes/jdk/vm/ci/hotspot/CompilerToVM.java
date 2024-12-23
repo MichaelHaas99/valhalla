@@ -130,6 +130,62 @@ final class CompilerToVM {
     private native byte[] getBytecode(HotSpotResolvedJavaMethodImpl method, long methodPointer);
 
     /**
+     * Determines if the parameter {@code index} in the {@code method} is scalarized.
+     *
+     * @return true if the parameter is scalarized
+     */
+    boolean isScalarizedParameter(HotSpotResolvedJavaMethodImpl method, int index) {
+        return isScalarizedParameter(method, method.getMethodPointer(), index);
+    }
+
+    private native boolean isScalarizedParameter(HotSpotResolvedJavaMethodImpl method, long methodPointer, int index);
+
+    /**
+     * Determines if any parameter in the {@code method} is scalarized.
+     *
+     * @return true if any parameter is scalarized
+     */
+    boolean hasScalarizedParameters(HotSpotResolvedJavaMethodImpl method) {
+        return hasScalarizedParameters(method, method.getMethodPointer());
+    }
+
+    private native boolean hasScalarizedParameters(HotSpotResolvedJavaMethodImpl method, long methodPointer);
+
+    /**
+     * Determines if the return value of the {@code method} is scalarized.
+     *
+     * @return true if the return value is scalarized
+     */
+    boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, HotSpotResolvedObjectTypeImpl inlineType) {
+        return hasScalarizedReturn(method, method.getMethodPointer(), inlineType, inlineType.getMetaspacePointer());
+    }
+
+    private native boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, long methodPointer, HotSpotResolvedObjectTypeImpl returnType, long inlineTypePointer);
+
+    /**
+     * Computes the scalarized signature of the {@code method}.
+     *
+     * @return the scalarized signature
+     */
+    HotSpotSignature getScalarizedSignature(HotSpotResolvedJavaMethodImpl method) {
+        return getScalarizedSignature(method, method.getMethodPointer());
+    }
+
+    private native HotSpotSignature getScalarizedSignature(HotSpotResolvedJavaMethodImpl method, long methodPointer);
+
+    /**
+     * Determines if a inline type can be passed scalarized as an argument.
+     *
+     * @return true if the inline type can be scalarized
+     */
+    boolean canBePassedAsFields(HotSpotResolvedObjectTypeImpl type) {
+        return canBePassedAsFields(type, type.getKlassPointer());
+    }
+
+    private native boolean canBePassedAsFields(HotSpotResolvedObjectTypeImpl type, long klassPointer);
+
+
+    /**
      * Gets the number of entries in {@code method}'s exception handler table or 0 if it has no
      * exception handler table.
      */

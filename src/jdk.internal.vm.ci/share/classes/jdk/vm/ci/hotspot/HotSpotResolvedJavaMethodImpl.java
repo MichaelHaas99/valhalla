@@ -35,6 +35,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
@@ -43,21 +44,7 @@ import java.util.Objects;
 import jdk.internal.vm.VMSupport;
 import jdk.vm.ci.common.JVMCIError;
 import jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.Option;
-import jdk.vm.ci.meta.AnnotationData;
-import jdk.vm.ci.meta.Constant;
-import jdk.vm.ci.meta.ConstantPool;
-import jdk.vm.ci.meta.DefaultProfilingInfo;
-import jdk.vm.ci.meta.ExceptionHandler;
-import jdk.vm.ci.meta.JavaMethod;
-import jdk.vm.ci.meta.JavaType;
-import jdk.vm.ci.meta.LineNumberTable;
-import jdk.vm.ci.meta.Local;
-import jdk.vm.ci.meta.LocalVariableTable;
-import jdk.vm.ci.meta.ProfilingInfo;
-import jdk.vm.ci.meta.ResolvedJavaMethod;
-import jdk.vm.ci.meta.ResolvedJavaType;
-import jdk.vm.ci.meta.SpeculationLog;
-import jdk.vm.ci.meta.TriState;
+import jdk.vm.ci.meta.*;
 
 /**
  * Implementation of {@link JavaMethod} for resolved HotSpot methods.
@@ -789,5 +776,125 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         long[] oopMap = new long[nwords];
         compilerToVM().getOopMapAt(this, bci, oopMap);
         return BitSet.valueOf(oopMap);
+    }
+
+    @Override
+    // see ciMethod::is_scalarized_arg
+    public boolean isScalarizedParameter(int index) {
+        return compilerToVM().isScalarizedParameter(this, index);
+    }
+
+    @Override
+    // see ciMethod::has_scalarized_args
+    public boolean hasScalarizedParameters() {
+        return compilerToVM().hasScalarizedParameters(this);
+    }
+
+    @Override
+    public boolean hasScalarizedReturn() {
+        if (!returnsInlineType()) return false;
+        return compilerToVM().hasScalarizedReturn(this, getReturnedInlineType());
+    }
+
+    @Override
+    // see ciMethod::get_sig_cc()
+    public HotSpotSignature getScalarizedSignature() {
+        return compilerToVM().getScalarizedSignature(this);
+    }
+
+
+    @Override
+    /*
+     *
+     * see TypeTuple::make_range in opto/type.cpp
+     */
+    public ResolvedJavaType[] getScalarizedReturn() {
+        if (!returnsInlineType() || hasScalarizedReturn()) return null;
+        HotSpotResolvedObjectType returnType = getReturnedInlineType();
+        ResolvedJavaField[] fields = returnType.getInstanceFields(true);
+
+        // two extra fields for oop (for already allocated buffer) and isInit (shows if scalarized value represents null)
+        ResolvedJavaType[] types = new ResolvedJavaType[fields.length + 2];
+        types[0] = returnType;
+        for (int i = 1; i < types.length - 1; i++) {
+            JavaType type = fields[i - 1].getType();
+            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
+            types[i] = (ResolvedJavaType) type;
+        }
+        types[types.length - 1] = HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean);
+        return types;
+    }
+
+
+    private boolean returnsInlineType() {
+        JavaType returnType = signature.getReturnType(getDeclaringClass());
+
+        // check if the method returns an object
+        if (returnType instanceof HotSpotResolvedObjectType type) {
+            // check if the returned value is an inline type
+            return !type.isInterface() && !type.isAbstract() && !type.isIdentity();
+        }
+        return false;
+    }
+
+    private HotSpotResolvedObjectTypeImpl getReturnedInlineType() {
+        return (HotSpotResolvedObjectTypeImpl) signature.getReturnType(getDeclaringClass());
+    }
+
+    public ResolvedJavaType[] getScalarizedParameter(int index) {
+        assert isScalarizedParameter(index) : "Expected scalarized parameter";
+        JavaType type = signature.getParameterType(index, getDeclaringClass());
+        assert type instanceof ResolvedJavaType : "Resolved Java type expected";
+        ResolvedJavaType resolvedType = (ResolvedJavaType) type;
+        assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
+        return (ResolvedJavaType[]) getFields((HotSpotResolvedObjectTypeImpl) resolvedType, true).toArray();
+    }
+
+    public boolean hasScalarizedReceiver() {
+        return !isStatic() && isScalarizedParameter(0);
+    }
+
+    public ResolvedJavaType[] getScalarizedReceiver() {
+        assert hasScalarizedReceiver() : "Expected scalarized receiver";
+        return (ResolvedJavaType[]) getFields(getDeclaringClass(), false).toArray();
+    }
+
+    @Override
+    /*
+     *
+     * see TypeTuple::make_domain in opto/type.cpp
+     */
+    public ResolvedJavaType[] getScalarizedParameters() {
+        ArrayList<ResolvedJavaType> types = new ArrayList<>();
+        if (!isStatic() && isScalarizedParameter(0)) {
+            types.addAll(getFields(getDeclaringClass(), false));
+        }
+        for (int i = 0; i < signature.getParameterCount(false); i++) {
+            JavaType type = signature.getParameterType(i, getDeclaringClass());
+            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
+            ResolvedJavaType resolvedType = (ResolvedJavaType) type;
+
+            if (isScalarizedParameter(i + (isStatic() ? 0 : 1))) {
+                assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
+                types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, true));
+            } else {
+                types.add(resolvedType);
+            }
+        }
+
+        return types.toArray(new ResolvedJavaType[types.size()]);
+    }
+
+
+    private static ArrayList<ResolvedJavaType> getFields(HotSpotResolvedObjectTypeImpl holder, boolean isInit) {
+        ResolvedJavaField[] fields = holder.getInstanceFields(true);
+        ArrayList<ResolvedJavaType> types = new ArrayList<>(fields.length + (isInit ? 1 : 0));
+        for (int i = 0; i < fields.length; i++) {
+            JavaType type = fields[i].getType();
+            assert type instanceof ResolvedJavaType : "Resolved Java type expected";
+            types.add((ResolvedJavaType) type);
+        }
+        if (isInit) types.add(HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean));
+        return types;
     }
 }
