@@ -1309,9 +1309,16 @@ void CodeInstaller::site_Mark(CodeBuffer& buffer, jint pc_offset, HotSpotCompile
     case UNVERIFIED_ENTRY:
       _offsets.set_value(CodeOffsets::Entry, pc_offset);
       break;
+    case INLINE_ENTRY:
+      _offsets.set_value(CodeOffsets::Inline_Entry, pc_offset);
+      break;
     case VERIFIED_ENTRY:
       _offsets.set_value(CodeOffsets::Verified_Entry, pc_offset);
+      break;
+    case VERIFIED_INLINE_ENTRY:
       _offsets.set_value(CodeOffsets::Verified_Inline_Entry, pc_offset);
+      break;
+    case VERIFIED_INLINE_ENTRY_RO:
       _offsets.set_value(CodeOffsets::Verified_Inline_Entry_RO, pc_offset);
       break;
     case OSR_ENTRY:
