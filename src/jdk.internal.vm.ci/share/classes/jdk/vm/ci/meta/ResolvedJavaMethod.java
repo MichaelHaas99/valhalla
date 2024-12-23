@@ -22,6 +22,8 @@
  */
 package jdk.vm.ci.meta;
 
+import jdk.vm.ci.hotspot.HotSpotSignature;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Array;
@@ -480,4 +482,16 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
      * responsibility to ensure the same speculation log is used throughout a compilation.
      */
     SpeculationLog getSpeculationLog();
+
+    boolean isScalarizedParameter(int index);
+
+    boolean hasScalarizedParameters();
+
+    boolean hasScalarizedReturn();
+
+    HotSpotSignature getScalarizedSignature();
+
+    ResolvedJavaType[] getScalarizedReturn();
+
+    ResolvedJavaType[] getScalarizedParameters();
 }
