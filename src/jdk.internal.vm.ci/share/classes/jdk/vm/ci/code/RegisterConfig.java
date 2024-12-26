@@ -40,6 +40,13 @@ public interface RegisterConfig {
     Register getReturnRegister(JavaKind kind);
 
     /**
+     * Gets the registers to be used for returning multiple values e.g. used for a scalarized inline object.
+     */
+    default Register[] getReturnRegisters(JavaKind[] kinds, boolean includeRax) {
+        throw new UnsupportedOperationException("config for multiple register usage on return not implemented yet");
+    }
+
+    /**
      * Gets the maximum allowed size of the frame.
      */
     default int getMaximumFrameSize() {
