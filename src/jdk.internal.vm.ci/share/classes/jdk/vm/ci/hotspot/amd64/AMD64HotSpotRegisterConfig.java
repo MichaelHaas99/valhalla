@@ -104,6 +104,7 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
     }
 
     private final RegisterArray javaGeneralParameterRegisters;
+    private final RegisterArray javaGeneralReturnRegisters;
     private final RegisterArray nativeGeneralParameterRegisters;
     private final RegisterArray javaXMMParameterRegisters;
     private final RegisterArray nativeXMMParameterRegisters;
@@ -151,11 +152,14 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
 
         if (windowsOS) {
             javaGeneralParameterRegisters = new RegisterArray(rdx, r8, r9, rdi, rsi, rcx);
+            // see assembler_x86.hpp and SharedRuntime::java_return_convention in sharedRuntime_x86_64.cpp
+            javaGeneralReturnRegisters = new RegisterArray(rax, rcx, rsi, rdi, r9, r8, rdx);
             nativeGeneralParameterRegisters = new RegisterArray(rcx, rdx, r8, r9);
             nativeXMMParameterRegisters = new RegisterArray(xmm0, xmm1, xmm2, xmm3);
             this.needsNativeStackHomeSpace = true;
         } else {
             javaGeneralParameterRegisters = new RegisterArray(rsi, rdx, rcx, r8, r9, rdi);
+            javaGeneralReturnRegisters = new RegisterArray(rax, rdi, r9, r8, rcx, rdx, rsi);
             nativeGeneralParameterRegisters = new RegisterArray(rdi, rsi, rdx, rcx, r8, r9);
             nativeXMMParameterRegisters = new RegisterArray(xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7);
             this.needsNativeStackHomeSpace = false;
@@ -199,6 +203,10 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
         // from the caller or callee perspective
         return callingConvention(javaGeneralParameterRegisters, javaXMMParameterRegisters, false, returnType, parameterTypes, hotspotType, valueKindFactory);
     }
+
+//    public ReturnConvention getReturnConvention() {
+//        return null;
+//    }
 
     @Override
     public RegisterArray getCallingConventionRegisters(Type type, JavaKind kind) {
@@ -307,6 +315,53 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
             default:
                 throw new UnsupportedOperationException("no return register for type " + kind);
         }
+    }
+
+    @Override
+    public Register[] getReturnRegisters(JavaKind[] kinds, boolean includeRax) {
+        Register[] registers = new Register[kinds.length];
+        RegisterArray generalReturnRegisters = javaGeneralReturnRegisters;
+        RegisterArray xmmReturnRegisters = javaXMMParameterRegisters;
+
+        int currentGeneral = includeRax ? 0 : 1;
+        int currentXMM = 0;
+
+        Register register;
+        for (int i = 0; i < kinds.length; i++) {
+            final JavaKind kind = kinds[i];
+
+            switch (kind) {
+                case Byte:
+                case Boolean:
+                case Short:
+                case Char:
+                case Int:
+                case Long:
+                case Object:
+                    assert currentGeneral < generalReturnRegisters.size() : "return values can only be stored in registers";
+                    registers[i] = generalReturnRegisters.get(currentGeneral++);
+
+                    break;
+                case Float:
+                case Double:
+                    registers[i] = xmmReturnRegisters.get(currentXMM);
+                    break;
+                default:
+                    throw JVMCIError.shouldNotReachHere();
+            }
+
+            assert registers[i] != null : "return values can only be stored in registers";
+        }
+        return registers;
+    }
+
+    public AllocatableValue[] getReturnLocations(Register[] registers, JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory) {
+        AllocatableValue[] locations = new AllocatableValue[returnTypes.length];
+        for (int i = 0; i < registers.length; i++) {
+            final JavaKind kind = returnTypes[i].getJavaKind().getStackKind();
+            locations[i] = registers[i].asValue(valueKindFactory.getValueKind(kind));
+        }
+        return locations;
     }
 
     @Override
