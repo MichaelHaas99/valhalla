@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import jdk.vm.ci.code.Architecture;
 import jdk.vm.ci.code.CallingConvention;
@@ -204,9 +205,14 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
         return callingConvention(javaGeneralParameterRegisters, javaXMMParameterRegisters, false, returnType, parameterTypes, hotspotType, valueKindFactory);
     }
 
-//    public ReturnConvention getReturnConvention() {
-//        return null;
-//    }
+    @Override
+    public AllocatableValue[] getReturnConvention(JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory, boolean includeRax) {
+        JavaKind[] kinds = new JavaKind[returnTypes.length];
+        for (int i = 0; i < returnTypes.length; i++) {
+            kinds[i] = returnTypes[i].getJavaKind().getStackKind();
+        }
+        return getReturnLocations(getReturnRegisters(kinds, includeRax), returnTypes, valueKindFactory);
+    }
 
     @Override
     public RegisterArray getCallingConventionRegisters(Type type, JavaKind kind) {

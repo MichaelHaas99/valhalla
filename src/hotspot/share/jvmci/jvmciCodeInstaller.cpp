@@ -1092,9 +1092,19 @@ void CodeInstaller::read_virtual_objects(HotSpotCompiledCodeStream* stream, JVMC
     if (is_auto_box) {
       _has_auto_box = true;
     }
+    // see code in output.cpp line 812 (PhaseOutput::FillLocArray line)
+    bool check_oop_or_hub = stream->read_bool("checkOopOrHub");
+    ScopeValue *is_init = nullptr;
+    if (check_oop_or_hub) {
+      ScopeValue* cur_second = nullptr;
+      BasicType type = (BasicType) stream->read_u1("basicType");
+      ScopeValue* value;
+      u1 tag = stream->read_u1("tag");
+      is_init = get_scope_value(stream, tag, type, cur_second, JVMCI_CHECK);
+    }
     oop javaMirror = klass->java_mirror();
     ScopeValue *klass_sv = new ConstantOopWriteValue(JNIHandles::make_local(javaMirror));
-    ObjectValue* sv = is_auto_box ? new AutoBoxObjectValue(id, klass_sv) : new ObjectValue(id, klass_sv);
+    ObjectValue* sv = is_auto_box ? new AutoBoxObjectValue(id, klass_sv) : new ObjectValue(id, klass_sv, true, is_init);
     objects->at_put(id, sv);
   }
   // All the values which could be referenced by the VirtualObjects
