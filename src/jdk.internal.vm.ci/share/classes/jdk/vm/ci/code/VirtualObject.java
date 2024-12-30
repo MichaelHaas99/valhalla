@@ -44,6 +44,7 @@ public final class VirtualObject implements JavaValue {
     private JavaKind[] slotKinds;
     private final int id;
     private boolean isAutoBox;
+    private JavaValue[] oopOrHub;
 
     /**
      * Creates a new {@link VirtualObject} for the given type, with the given fields. If
@@ -240,6 +241,10 @@ public final class VirtualObject implements JavaValue {
         return values;
     }
 
+    public JavaValue[] getOopOrHub() {
+        return oopOrHub;
+    }
+
     /**
      * Returns the kind of the value at {@code index}.
      */
@@ -277,6 +282,10 @@ public final class VirtualObject implements JavaValue {
         assert values.length == slotKinds.length;
         this.values = values;
         this.slotKinds = slotKinds;
+    }
+
+    public void setOopOrHub(JavaValue[] oopOrHub) {
+        this.oopOrHub = oopOrHub;
     }
 
     @Override
