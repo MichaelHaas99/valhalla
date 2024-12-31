@@ -350,7 +350,7 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
                     break;
                 case Float:
                 case Double:
-                    registers[i] = xmmReturnRegisters.get(currentXMM);
+                    registers[i] = xmmReturnRegisters.get(currentXMM++);
                     break;
                 default:
                     throw JVMCIError.shouldNotReachHere();
