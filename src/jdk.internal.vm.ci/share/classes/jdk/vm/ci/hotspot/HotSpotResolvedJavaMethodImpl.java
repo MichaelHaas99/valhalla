@@ -793,8 +793,8 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
 
     @Override
     public boolean hasScalarizedReturn() {
-        if (!returnsInlineType()) return false;
-        return compilerToVM().hasScalarizedReturn(this, getReturnedInlineType());
+        //if (!returnsInlineType()) return false;
+        return compilerToVM().hasScalarizedReturn(this);
     }
 
     @Override
@@ -827,6 +827,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
 
 
     private boolean returnsInlineType() {
+        //runtime().reflection.getType()
         JavaType returnType = signature.getReturnType(getDeclaringClass());
 
         // check if the method returns an object

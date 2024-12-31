@@ -156,11 +156,11 @@ final class CompilerToVM {
      *
      * @return true if the return value is scalarized
      */
-    boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, HotSpotResolvedObjectTypeImpl inlineType) {
-        return hasScalarizedReturn(method, method.getMethodPointer(), inlineType, inlineType.getMetaspacePointer());
+    boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method) {
+        return hasScalarizedReturn(method, method.getMethodPointer());
     }
 
-    private native boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, long methodPointer, HotSpotResolvedObjectTypeImpl returnType, long inlineTypePointer);
+    private native boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, long methodPointer);
 
     /**
      * Computes the scalarized signature of the {@code method}.
