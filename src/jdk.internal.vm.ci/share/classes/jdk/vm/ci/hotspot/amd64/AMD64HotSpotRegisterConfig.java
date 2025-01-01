@@ -350,6 +350,7 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
                     break;
                 case Float:
                 case Double:
+                    assert currentXMM < xmmReturnRegisters.size() : "return values can only be stored in registers";
                     registers[i] = xmmReturnRegisters.get(currentXMM++);
                     break;
                 default:
