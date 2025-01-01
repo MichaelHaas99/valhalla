@@ -798,6 +798,11 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     }
 
     @Override
+    public boolean hasScalarizedReceiver() {
+        return !isStatic() && compilerToVM().isScalarizedParameter(this, 0);
+    }
+
+    @Override
     // see ciMethod::get_sig_cc()
     public HotSpotSignature getScalarizedSignature() {
         return compilerToVM().getScalarizedSignature(this);
@@ -814,14 +819,13 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         HotSpotResolvedObjectType returnType = getReturnedInlineType();
         ResolvedJavaField[] fields = returnType.getInstanceFields(true);
 
-        // two extra fields for oop (for already allocated buffer) and isInit (shows if scalarized value represents null)
-        ResolvedJavaType[] types = new ResolvedJavaType[fields.length + 2];
+        // one extra field for oop (for already allocated buffer)
+        ResolvedJavaType[] types = new ResolvedJavaType[fields.length + 1];
         types[0] = returnType;
-        for (int i = 1; i < types.length - 1; i++) {
+        for (int i = 1; i < types.length; i++) {
             JavaType type = fields[i - 1].getType();
             types[i] = type.resolve(getDeclaringClass());
         }
-        types[types.length - 1] = HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean);
         return types;
     }
 
@@ -841,6 +845,9 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         return (HotSpotResolvedObjectTypeImpl) signature.getReturnType(getDeclaringClass());
     }
 
+
+    // ignore the next funtions for the moment
+
     @Override
     public ResolvedJavaType[] getScalarizedParameter(int index) {
         assert isScalarizedParameter(index) : "Scalarized parameter presumed";
@@ -850,10 +857,6 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, true);
     }
 
-    @Override
-    public boolean hasScalarizedReceiver() {
-        return !isStatic() && compilerToVM().isScalarizedParameter(this, 0);
-    }
 
     @Override
     public ResolvedJavaType[] getScalarizedReceiver() {
