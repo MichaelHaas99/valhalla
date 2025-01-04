@@ -1093,9 +1093,9 @@ void CodeInstaller::read_virtual_objects(HotSpotCompiledCodeStream* stream, JVMC
       _has_auto_box = true;
     }
     // see code in output.cpp line 812 (PhaseOutput::FillLocArray line)
-    bool check_oop_or_hub = stream->read_bool("checkOopOrHub");
+    bool check_is_not_null = stream->read_bool("isNotNull");
     ScopeValue *is_init = nullptr;
-    if (check_oop_or_hub) {
+    if (check_is_not_null) {
       ScopeValue* cur_second = nullptr;
       BasicType type = (BasicType) stream->read_u1("basicType");
       ScopeValue* value;
