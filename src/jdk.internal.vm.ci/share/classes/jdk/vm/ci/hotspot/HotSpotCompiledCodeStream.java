@@ -988,9 +988,9 @@ final class HotSpotCompiledCodeStream implements AutoCloseable {
             writeBoolean("checkOopOrHub", vo.getOopOrHub() != null);
             if (vo.getOopOrHub() != null) {
                 //writeJavaValue(vo.getOopOrHub()[0], JavaKind.Object);
-                writeBasicType(JavaKind.Object);
+                writeBasicType(JavaKind.Int);
                 JavaValue jv = vo.getOopOrHub()[0];
-                writeJavaValue(jv, JavaKind.Object);
+                writeJavaValue(jv, JavaKind.Int);
             }
 
         }
