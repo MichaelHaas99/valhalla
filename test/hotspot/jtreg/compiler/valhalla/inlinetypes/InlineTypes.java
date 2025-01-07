@@ -34,10 +34,19 @@ public class InlineTypes {
 
     public static final Scenario[] DEFAULT_SCENARIOS = {
             new Scenario(0,
-                         "--enable-preview",
-                         "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
-                         "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
-                         "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED"
+                    "--enable-preview",
+                    "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
+                    "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
+                    "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
+                    "-XX:+IgnoreUnrecognizedVMOptions",
+                    "-XX:-UseACmpProfile",
+                    "-XX:-UseCompressedOops",
+                    "-XX:FlatArrayElementMaxOops=5",
+                    "-XX:FlatArrayElementMaxSize=-1",
+                    "-XX:-UseArrayLoadStoreProfile",
+                    "-XX:InlineFieldMaxFlatSize=-1",
+                    "-XX:-InlineTypePassFieldsAsArgs",
+                    "-XX:-InlineTypeReturnedAsFields"
             )
             ,
             new Scenario(1,
@@ -69,7 +78,7 @@ public class InlineTypes {
                          "-XX:FlatArrayElementMaxSize=0",
                          "-XX:-UseArrayLoadStoreProfile",
                          "-XX:InlineFieldMaxFlatSize=-1",
-                         "-XX:+InlineTypePassFieldsAsArgs",
+                    "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:+InlineTypeReturnedAsFields",
                          "-XX:+StressInlineTypeReturnedAsFields"
             ),
@@ -84,7 +93,7 @@ public class InlineTypes {
                          "-XX:FlatArrayElementMaxOops=0",
                          "-XX:FlatArrayElementMaxSize=0",
                          "-XX:InlineFieldMaxFlatSize=0",
-                         "-XX:+InlineTypePassFieldsAsArgs",
+                    "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:+InlineTypeReturnedAsFields"
             ),
             new Scenario(4,
@@ -97,7 +106,7 @@ public class InlineTypes {
                          "-XX:FlatArrayElementMaxOops=-1",
                          "-XX:FlatArrayElementMaxSize=-1",
                          "-XX:InlineFieldMaxFlatSize=0",
-                         "-XX:+InlineTypePassFieldsAsArgs",
+                    "-XX:-InlineTypePassFieldsAsArgs",
                          "-XX:-InlineTypeReturnedAsFields",
                          "-XX:-ReduceInitialCardMarks"
             ),
@@ -122,7 +131,7 @@ public class InlineTypes {
         InlineTypeIRNode.forceStaticInitialization();
         StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
         TestFramework framework = new TestFramework(walker.getCallerClass()).setDefaultWarmup(251);
-        framework.addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363");
+        framework.addFlags("-XX:-InlineTypePassFieldsAsArgs", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363");
         return framework;
     }
 }
