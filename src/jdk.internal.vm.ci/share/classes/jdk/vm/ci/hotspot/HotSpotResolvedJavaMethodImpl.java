@@ -785,6 +785,11 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         return compilerToVM().isScalarizedParameter(this, index + (isStatic() ? 0 : 1));
     }
 
+    public boolean isParameterNullFree(int index) {
+        // maybe for the future
+        return false;
+    }
+
     @Override
     // see ciMethod::has_scalarized_args
     public boolean hasScalarizedParameters() {
@@ -854,7 +859,13 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         JavaType type = signature.getParameterType(index, getDeclaringClass());
         ResolvedJavaType resolvedType = type.resolve(getDeclaringClass());
         assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
-        return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, true);
+        return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, false);
+    }
+
+    @Override
+    public ResolvedJavaType getScalarizedParameterIsNotNullType(int index) {
+        assert isScalarizedParameter(index) && isParameterNullFree(index) : "Scalarized nullable parameter presumed";
+        return HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean);
     }
 
 
@@ -869,11 +880,15 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
      *
      * see TypeTuple::make_domain in opto/type.cpp
      */
-    public ResolvedJavaType[] getScalarizedParameters() {
+    public ResolvedJavaType[] getScalarizedParameters(boolean scalarizeReceiver) {
         assert hasScalarizedParameters() : "Any scalarized parameters presumed";
         ArrayList<ResolvedJavaType> types = new ArrayList<>();
         if (hasScalarizedReceiver()) {
-            types.addAll(getFields(getDeclaringClass(), false));
+            if (scalarizeReceiver) {
+                types.addAll(getFields(getDeclaringClass(), false));
+            } else {
+                types.add(getDeclaringClass());
+            }
         }
         for (int i = 0; i < signature.getParameterCount(false); i++) {
             JavaType type = signature.getParameterType(i, getDeclaringClass());
@@ -881,7 +896,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
 
             if (isScalarizedParameter(i)) {
                 assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
-                types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, true));
+                types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, !isParameterNullFree(i)));
             } else {
                 types.add(resolvedType);
             }
@@ -894,12 +909,12 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     private static ArrayList<ResolvedJavaType> getFields(HotSpotResolvedObjectTypeImpl holder, boolean isInit) {
         ResolvedJavaField[] fields = holder.getInstanceFields(true);
         ArrayList<ResolvedJavaType> types = new ArrayList<>(fields.length + (isInit ? 1 : 0));
+        if (isInit) types.add(HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean));
         for (int i = 0; i < fields.length; i++) {
             JavaType type = fields[i].getType();
             ResolvedJavaType resolvedType = type.resolve(holder);
             types.add(resolvedType);
         }
-        if (isInit) types.add(HotSpotResolvedPrimitiveType.forKind(JavaKind.Boolean));
         return types;
     }
 

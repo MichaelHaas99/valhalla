@@ -437,4 +437,18 @@ public class CodeUtil {
         RegisterConfig registerConfig = codeCache.getRegisterConfig();
         return registerConfig.getCallingConvention(type, retType, argTypes, valueKindFactory);
     }
+
+    /**
+     * Create a calling convention from a {@link ResolvedJavaMethod} with the parameters scalarized.
+     *
+     * @param scalarizeReceiver decides if also the receiver should be scalarized
+     */
+    public static CallingConvention getScalarizedCallingConvention(CodeCacheProvider codeCache, CallingConvention.Type type, ResolvedJavaMethod method, ValueKindFactory<?> valueKindFactory, boolean scalarizeReceiver) {
+        Signature sig = method.getSignature();
+        JavaType[] argTypes = method.getScalarizedParameters(scalarizeReceiver);
+        JavaType retType = sig.getReturnType(null);
+        RegisterConfig registerConfig = codeCache.getRegisterConfig();
+        return registerConfig.getCallingConvention(type, retType, argTypes, valueKindFactory);
+    }
+
 }

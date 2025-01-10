@@ -485,6 +485,10 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
 
     boolean isScalarizedParameter(int index);
 
+    default boolean isParameterNullFree(int index) {
+        throw new UnsupportedOperationException("isParameterNullFree not implemented yet");
+    }
+
     boolean hasScalarizedParameters();
 
     boolean hasScalarizedReturn();
@@ -495,9 +499,13 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
 
     ResolvedJavaType[] getScalarizedReturn();
 
-    ResolvedJavaType[] getScalarizedParameters();
+    ResolvedJavaType[] getScalarizedParameters(boolean scalarizeReceiver);
 
     ResolvedJavaType[] getScalarizedParameter(int index);
+
+    default ResolvedJavaType getScalarizedParameterIsNotNullType(int index) {
+        throw new UnsupportedOperationException("getScalarizedParameterIsNotNull is not supported");
+    }
 
     ResolvedJavaType[] getScalarizedReceiver();
 }
