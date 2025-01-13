@@ -444,6 +444,7 @@ public class CodeUtil {
      * @param scalarizeReceiver decides if also the receiver should be scalarized
      */
     public static CallingConvention getScalarizedCallingConvention(CodeCacheProvider codeCache, CallingConvention.Type type, ResolvedJavaMethod method, ValueKindFactory<?> valueKindFactory, boolean scalarizeReceiver) {
+        if (!method.hasScalarizedParameters()) return getCallingConvention(codeCache, type, method, valueKindFactory);
         Signature sig = method.getSignature();
         JavaType[] argTypes = method.getScalarizedParameters(scalarizeReceiver);
         JavaType retType = sig.getReturnType(null);
