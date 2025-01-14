@@ -908,7 +908,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         boolean includeReceiver = withReceiver && !isStatic();
         if (includeReceiver) {
             if (index == 0) {
-                getDeclaringClass().getInstanceFields(true);
+                return getDeclaringClass().getInstanceFields(true);
             } else {
                 index--;
             }
@@ -937,12 +937,10 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     public ResolvedJavaType[] getScalarizedParameters(boolean scalarizeReceiver) {
         assert hasScalarizedParameters() : "Any scalarized parameters presumed";
         ArrayList<ResolvedJavaType> types = new ArrayList<>();
-        if (hasScalarizedReceiver()) {
-            if (scalarizeReceiver) {
-                types.addAll(getFields(getDeclaringClass(), false));
-            } else {
-                types.add(getDeclaringClass());
-            }
+        if (hasScalarizedReceiver() && scalarizeReceiver) {
+            types.addAll(getFields(getDeclaringClass(), false));
+        } else if (!isStatic()) {
+            types.add(getDeclaringClass());
         }
         for (int i = 0; i < signature.getParameterCount(false); i++) {
             JavaType type = signature.getParameterType(i, getDeclaringClass());
