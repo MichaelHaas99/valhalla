@@ -382,14 +382,14 @@ C2V_END
 C2V_VMENTRY_0(jboolean, hasScalarizedReturn, (JNIEnv* env, jobject, ARGUMENT_PAIR(method), ARGUMENT_PAIR(klass)))
   Method* method = UNPACK_PAIR(Method, method);
   Klass* klass = UNPACK_PAIR(Klass, klass);
-  assert(klass->is_inlinetype(), "Klass should be inline type");
+  assert(klass->is_inline_klass(), "Klass should be inline type");
   InlineKlass* inlineKlass = InlineKlass::cast(klass);
   return !method->is_native() && inlineKlass->can_be_returned_as_fields();
 C2V_END
 
 C2V_VMENTRY_0(jboolean, canBePassedAsFields, (JNIEnv* env, jobject, ARGUMENT_PAIR(klass)))
   Klass* klass = UNPACK_PAIR(Klass, klass);
-  assert(klass->is_inlinetype(), "Klass should be an inline type");
+  assert(klass->is_inline_klass(), "Klass should be an inline type");
   InlineKlass* inlineKlass = InlineKlass::cast(klass);
   return inlineKlass->can_be_passed_as_fields();
 C2V_END
