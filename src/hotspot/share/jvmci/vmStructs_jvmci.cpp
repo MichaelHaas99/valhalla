@@ -301,7 +301,7 @@
   nonstatic_field(Method,                      _flags._status,                                u4)                                    \
   volatile_nonstatic_field(Method,             _code,                                         nmethod*)                              \
   volatile_nonstatic_field(Method,             _from_compiled_entry,                          address)                               \
-  volatile_nonstatic_field(Method,             _from_compiled_inline_entry,                   address)                               \
+  volatile_nonstatic_field(Method,             _from_compiled_inline_ro_entry,                address)                               \
                                                                                                                                      \
   nonstatic_field(MethodCounters,              _invoke_mask,                                  int)                                   \
   nonstatic_field(MethodCounters,              _backedge_mask,                                int)                                   \
