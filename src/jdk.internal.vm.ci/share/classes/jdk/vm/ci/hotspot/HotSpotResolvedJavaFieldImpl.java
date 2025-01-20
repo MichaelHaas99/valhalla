@@ -118,7 +118,8 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     @Override
     public boolean isInitialized() {
         assert isStatic() : "should only be called on static fields";
-        return UNSAFE.getAddress(holder.getKlassPointer(), this.offset) != 0;
+        holder.initialize();
+        return !runtime().getCompilerToVM().readStaticFieldValue(holder, this.offset, JavaKind.Object.getTypeChar()).isNull();
     }
 
     @Override
