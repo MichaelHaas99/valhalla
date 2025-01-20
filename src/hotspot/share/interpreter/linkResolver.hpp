@@ -271,7 +271,7 @@ class LinkResolver: AllStatic {
   static void resolve_invokespecial  (CallInfo& result, Handle recv,
                                       const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokevirtual  (CallInfo& result, Handle recv,
-                                      const constantPoolHandle& pool, int index, TRAPS);
+                                      const constantPoolHandle& pool, int index, bool check_null_or_abstract, TRAPS);
   static void resolve_invokeinterface(CallInfo& result, Handle recv,
                                       const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokedynamic  (CallInfo& result,
@@ -357,7 +357,9 @@ class LinkResolver: AllStatic {
   // runtime resolving from attached method
   static void resolve_invoke(CallInfo& result, Handle& recv,
                              const methodHandle& attached_method,
-                             Bytecodes::Code byte, bool check_null_and_abstract, TRAPS);
+                             Bytecodes::Code byte, bool check_null_or_abstract, TRAPS);
+
+  static void resolve_invoke_jvmci(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, Bytecodes::Code byte, bool check_null_or_abstract, TRAPS);
 
   // Only resolved method known.
   static void throw_abstract_method_error(const methodHandle& resolved_method, TRAPS) {
