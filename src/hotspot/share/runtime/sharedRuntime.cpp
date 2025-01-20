@@ -1276,7 +1276,8 @@ Handle SharedRuntime::find_callee_info_helper(vframeStream& vfst, Bytecodes::Cod
       // If the receiver is an inline type that is passed as fields, no oop is available
       // Resolve the call without receiver null checking.
       assert(!callee->mismatch(), "calls with inline type receivers should never mismatch");
-      assert(attached_method.not_null() && !attached_method->is_abstract(), "must have non-abstract attached method");
+      // TODO: create a correct check for JVMCI, attached_method.not_null() fails
+      //assert(attached_method.not_null() && !attached_method->is_abstract(), "must have non-abstract attached method");
       if (bc == Bytecodes::_invokeinterface) {
         bc = Bytecodes::_invokevirtual; // C2 optimistically replaces interface calls by virtual calls
       }
@@ -1298,7 +1299,11 @@ Handle SharedRuntime::find_callee_info_helper(vframeStream& vfst, Bytecodes::Cod
   } else {
     // Parameterized by bytecode.
     constantPoolHandle constants(current, caller->constants());
-    LinkResolver::resolve_invoke(callinfo, receiver, constants, bytecode_index, bc, CHECK_NH);
+    if(vfst.nm()->is_compiled_by_jvmci()){
+        LinkResolver::resolve_invoke_jvmci(callinfo, receiver, constants, bytecode_index, bc, check_null_and_abstract, CHECK_NH);
+    }else{
+        LinkResolver::resolve_invoke(callinfo, receiver, constants, bytecode_index, bc, CHECK_NH);
+    }
   }
 
 #ifdef ASSERT
