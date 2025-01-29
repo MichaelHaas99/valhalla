@@ -1705,23 +1705,10 @@ void LinkResolver::resolve_invoke(CallInfo& result, Handle recv, const constantP
   switch (byte) {
     case Bytecodes::_invokestatic   : resolve_invokestatic   (result,       pool, index, CHECK); break;
     case Bytecodes::_invokespecial  : resolve_invokespecial  (result, recv, pool, index, CHECK); break;
-    case Bytecodes::_invokevirtual  : resolve_invokevirtual  (result, recv, pool, index, true, CHECK); break;
+    case Bytecodes::_invokevirtual  : resolve_invokevirtual  (result, recv, pool, index, CHECK); break;
     case Bytecodes::_invokehandle   : resolve_invokehandle   (result,       pool, index, CHECK); break;
     case Bytecodes::_invokedynamic  : resolve_invokedynamic  (result,       pool, index, CHECK); break;
-    case Bytecodes::_invokeinterface: resolve_invokeinterface(result, recv, pool, index, true, CHECK); break;
-    default                         :                                                            break;
-  }
-  return;
-}
-
-void LinkResolver::resolve_invoke_jvmci(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, Bytecodes::Code byte, bool check_null_or_abstract, TRAPS) {
-  switch (byte) {
-    case Bytecodes::_invokestatic   : resolve_invokestatic   (result,       pool, index, CHECK); break;
-    case Bytecodes::_invokespecial  : resolve_invokespecial  (result, recv, pool, index, CHECK); break;
-    case Bytecodes::_invokevirtual  : resolve_invokevirtual  (result, recv, pool, index, check_null_or_abstract, CHECK); break;
-    case Bytecodes::_invokehandle   : resolve_invokehandle   (result,       pool, index, CHECK); break;
-    case Bytecodes::_invokedynamic  : resolve_invokedynamic  (result,       pool, index, CHECK); break;
-    case Bytecodes::_invokeinterface: resolve_invokeinterface(result, recv, pool, index, check_null_or_abstract, CHECK); break;
+    case Bytecodes::_invokeinterface: resolve_invokeinterface(result, recv, pool, index, CHECK); break;
     default                         :                                                            break;
   }
   return;
@@ -1770,19 +1757,19 @@ void LinkResolver::resolve_invokespecial(CallInfo& result, Handle recv,
 
 
 void LinkResolver::resolve_invokevirtual(CallInfo& result, Handle recv,
-                                          const constantPoolHandle& pool, int index, bool check_null_or_abstract,
+                                          const constantPoolHandle& pool, int index,
                                           TRAPS) {
 
   LinkInfo link_info(pool, index, Bytecodes::_invokevirtual, CHECK);
   Klass* recvrKlass = recv.is_null() ? (Klass*)nullptr : recv->klass();
-  resolve_virtual_call(result, recv, recvrKlass, link_info, check_null_or_abstract, CHECK);
+  resolve_virtual_call(result, recv, recvrKlass, link_info, /*check_null_or_abstract*/true, CHECK);
 }
 
 
-void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, bool check_null_or_abstract, TRAPS) {
+void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, TRAPS) {
   LinkInfo link_info(pool, index, Bytecodes::_invokeinterface, CHECK);
   Klass* recvrKlass = recv.is_null() ? (Klass*)nullptr : recv->klass();
-  resolve_interface_call(result, recv, recvrKlass, link_info, check_null_or_abstract, CHECK);
+  resolve_interface_call(result, recv, recvrKlass, link_info, /*check_null_or_abstract*/true, CHECK);
 }
 
 bool LinkResolver::resolve_previously_linked_invokehandle(CallInfo& result, const LinkInfo& link_info, const constantPoolHandle& pool, int index, TRAPS) {
