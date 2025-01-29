@@ -272,9 +272,9 @@ class LinkResolver: AllStatic {
   static void resolve_invokespecial  (CallInfo& result, Handle recv,
                                       const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokevirtual  (CallInfo& result, Handle recv,
-                                      const constantPoolHandle& pool, int index, bool check_null_or_abstract, TRAPS);
+                                      const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokeinterface(CallInfo& result, Handle recv,
-                                      const constantPoolHandle& pool, int index, bool check_null_or_abstract, TRAPS);
+                                      const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokedynamic  (CallInfo& result,
                                       const constantPoolHandle& pool, int index, TRAPS);
   static void resolve_invokehandle   (CallInfo& result,
