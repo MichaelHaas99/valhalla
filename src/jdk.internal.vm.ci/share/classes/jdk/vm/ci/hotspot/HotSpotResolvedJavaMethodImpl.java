@@ -570,14 +570,13 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
 
     @Override
     public boolean canBeInlined() {
-//        if (isForceInline()) {
-//            return true;
-//        }
-//        if (hasNeverInlineDirective()) {
-//            return false;
-//        }
-//        return compilerToVM().isCompilable(this);
-        return false;
+        if (isForceInline()) {
+            return true;
+        }
+        if (hasNeverInlineDirective()) {
+            return false;
+        }
+        return compilerToVM().isCompilable(this);
     }
 
     @Override
@@ -864,6 +863,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         // check if the method returns an object
         if (returnType instanceof HotSpotResolvedObjectType type) {
             // check if the returned value is an inline type
+            // TODO: is correct otherwise just use return true?
             return !type.isInterface() && !type.isAbstract() && !type.isIdentity();
         }
         return false;

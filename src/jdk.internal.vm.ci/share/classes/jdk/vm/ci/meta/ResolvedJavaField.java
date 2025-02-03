@@ -22,6 +22,8 @@
  */
 package jdk.vm.ci.meta;
 
+import jdk.vm.ci.hotspot.HotSpotResolvedObjectType;
+
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Modifier;
 
@@ -113,6 +115,14 @@ public interface ResolvedJavaField extends JavaField, ModifiersProvider, Annotat
      */
     @Override
     ResolvedJavaType getDeclaringClass();
+
+    default ResolvedJavaType getOuterDeclaringClass() {
+        throw new UnsupportedOperationException();
+    }
+
+    default ResolvedJavaField setOuterDeclaringClass(HotSpotResolvedObjectType outerHolder) {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Gets the value of the {@code ConstantValue} attribute ({@jvms 4.7.2}) associated with this

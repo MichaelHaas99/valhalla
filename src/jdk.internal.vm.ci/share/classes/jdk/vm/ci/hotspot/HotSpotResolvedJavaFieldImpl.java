@@ -42,6 +42,9 @@ import static jdk.vm.ci.hotspot.UnsafeAccess.UNSAFE;
 class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
 
     private final HotSpotResolvedObjectTypeImpl holder;
+
+    private HotSpotResolvedObjectTypeImpl outerHolder;
+
     private JavaType type;
 
     /**
@@ -169,6 +172,21 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     @Override
     public HotSpotResolvedObjectTypeImpl getDeclaringClass() {
         return holder;
+    }
+
+    @Override
+    public HotSpotResolvedObjectTypeImpl getOuterDeclaringClass() {
+        if (outerHolder == null) {
+            return holder;
+        }
+        return outerHolder;
+    }
+
+    @Override
+    public ResolvedJavaField setOuterDeclaringClass(HotSpotResolvedObjectType outerHolder) {
+        HotSpotResolvedJavaFieldImpl field = new HotSpotResolvedJavaFieldImpl(holder, type, offset, classfileFlags, internalFlags, index);
+        field.outerHolder = (HotSpotResolvedObjectTypeImpl) outerHolder;
+        return field;
     }
 
     @Override
