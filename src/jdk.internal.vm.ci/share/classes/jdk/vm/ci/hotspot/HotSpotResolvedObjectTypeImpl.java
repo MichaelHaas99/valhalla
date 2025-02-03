@@ -957,6 +957,7 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
                         // holder has no header so remove the header offset
                         int offset = fieldOffset + (innerFields[i].getOffset() - resolvedFieldType.firstFieldOffset());
                         HotSpotResolvedJavaField innerField = (HotSpotResolvedJavaField) innerFields[i];
+                        innerField.setOuterDeclaringClass(this);
                         resultList.add((HotSpotResolvedJavaField) innerField.changeOffset(offset));
                     }
                 }
