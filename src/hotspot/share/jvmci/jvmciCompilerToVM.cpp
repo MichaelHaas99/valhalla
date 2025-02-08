@@ -374,6 +374,15 @@ C2V_VMENTRY_0(jboolean, isScalarizedParameter, (JNIEnv* env, jobject, ARGUMENT_P
   return method->is_scalarized_arg(idx);
 C2V_END
 
+C2V_VMENTRY_0(jbooleanArray, getScalarizedParametersInfo, (JNIEnv* env, jobject, ARGUMENT_PAIR(method), jint len))
+  Method* method = UNPACK_PAIR(Method, method);
+  JVMCIPrimitiveArray result = JVMCIENV->new_booleanArray(len, JVMCI_CHECK_NULL);
+  for(int i=0; i<len; i++){
+    JVMCIENV->put_bool_at(result, i, method->is_scalarized_arg(i));
+  }
+  return JVMCIENV->get_jbooleanArray(result);
+C2V_END
+
 C2V_VMENTRY_0(jboolean, hasScalarizedParameters, (JNIEnv* env, jobject, ARGUMENT_PAIR(method)))
   Method* method = UNPACK_PAIR(Method, method);
   return method->has_scalarized_args();
@@ -3319,6 +3328,7 @@ C2V_VMENTRY_0(jint, getCompilationActivityMode, (JNIEnv* env, jobject))
 JNINativeMethod CompilerToVM::methods[] = {
   {CC "getBytecode",                                  CC "(" HS_METHOD2 ")[B",                                                              FN_PTR(getBytecode)},
   {CC "isScalarizedParameter",                        CC "(" HS_METHOD2 "I)Z",                                                              FN_PTR(isScalarizedParameter)},
+  {CC "getScalarizedParametersInfo",                  CC "(" HS_METHOD2 "I)[Z",                                                             FN_PTR(getScalarizedParametersInfo)},
   {CC "hasScalarizedParameters",                      CC "(" HS_METHOD2 ")Z",                                                               FN_PTR(hasScalarizedParameters)},
   {CC "hasScalarizedReturn",                          CC "(" HS_METHOD2 HS_KLASS2 ")Z",                                                     FN_PTR(hasScalarizedReturn)},
   {CC "canBePassedAsFields",                          CC "(" HS_KLASS2 ")Z",                                                                FN_PTR(canBePassedAsFields)},
