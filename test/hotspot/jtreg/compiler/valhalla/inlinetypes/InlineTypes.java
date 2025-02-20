@@ -129,7 +129,7 @@ public class InlineTypes {
     public static TestFramework getFramework() {
         StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
         TestFramework framework = new TestFramework(walker.getCallerClass()).setDefaultWarmup(251);
-        framework.addFlags("-XX:-InlineTypePassFieldsAsArgs", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363");
+        framework.addFlags(/*"-XX:-InlineTypePassFieldsAsArgs", */"-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363");
         return framework;
     }
 }
