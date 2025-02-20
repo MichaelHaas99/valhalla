@@ -268,6 +268,7 @@ public class TestFramework {
     public TestFramework setCompileOnlyTestMethods(Class<?> clazz) {
         //addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*", "-XX:InlineFieldMaxFlatSize=-1", "-DIgnoreCompilerControls=true"/*, "-DPreferCommandLineFlags=true"*/);
         addFlags("-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*");
+        addFlags("-DIgnoreCompilerControls=true");
         return this;
     }
 
@@ -332,7 +333,7 @@ public class TestFramework {
             this.scenarios.add(scenario);
         }
         TestFormat.throwIfAnyFailures();
-        addFlags("-XX:-InlineTypePassFieldsAsArgs", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-DIgnoreCompilerControls=true"/*, "-DPreferCommandLineFlags=true"*/);
+        addFlags(/*"-XX:-InlineTypePassFieldsAsArgs", */"-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-DIgnoreCompilerControls=false"/*, "-DPreferCommandLineFlags=true"*/);
         return this;
     }
 
