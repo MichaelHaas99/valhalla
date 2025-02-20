@@ -42,6 +42,9 @@
 #include "runtime/os.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "utilities/align.hpp"
+#include "ci/ciSignature.hpp"
+#include "oops/inlineKlass.hpp"
+#include "runtime/globals.hpp"
 
 // frequently used constants
 // Allocate them with new so they are never destroyed (otherwise, a
@@ -1132,6 +1135,17 @@ int CodeInstaller::map_jvmci_bci(int bci) {
   return bci;
 }
 
+bool has_scalarized_return(methodHandle& methodHandle){
+  if(!InlineTypeReturnedAsFields) return false;
+  Method* method = methodHandle();
+  InlineKlass* klass = method->returns_inline_type(Thread::current());
+  bool has_scalar_ret = false;
+  if(klass != nullptr) {
+    has_scalar_ret = !method->is_native() && klass->can_be_returned_as_fields();
+  }
+  return has_scalar_ret;
+}
+
 void CodeInstaller::record_scope(jint pc_offset, HotSpotCompiledCodeStream* stream, u1 debug_info_flags, bool full_info, bool is_mh_invoke, bool return_oop, JVMCI_TRAPS) {
   if (full_info) {
     read_virtual_objects(stream, JVMCI_CHECK);
@@ -1173,7 +1187,8 @@ void CodeInstaller::record_scope(jint pc_offset, HotSpotCompiledCodeStream* stre
       }
 
       // has_ea_local_in_scope and arg_escape should be added to JVMCI
-      const bool return_scalarized     = false;
+      const bool return_scalarized     = has_scalarized_return(method);
+      return_oop |= has_scalarized_return(method);
       const bool has_ea_local_in_scope = false;
       const bool arg_escape            = false;
       _debug_recorder->describe_scope(pc_offset, method, nullptr, bci, reexecute, rethrow_exception, is_mh_invoke, return_oop,
