@@ -850,6 +850,7 @@
   declare_function(SharedRuntime::enable_stack_reserved_zone)             \
   declare_function(SharedRuntime::frem)                                   \
   declare_function(SharedRuntime::drem)                                   \
+  declare_function(SharedRuntime::store_inline_type_fields_to_buf)        \
   JVMTI_ONLY(declare_function(SharedRuntime::notify_jvmti_vthread_start)) \
   JVMTI_ONLY(declare_function(SharedRuntime::notify_jvmti_vthread_end))   \
   JVMTI_ONLY(declare_function(SharedRuntime::notify_jvmti_vthread_mount)) \
