@@ -834,7 +834,8 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
         }
 
         private boolean hasInternalNullMarker() {
-            return (getInternalFlags() & (1 << config().jvmFieldFlagInternalNullMarkerShift)) != 0;
+            return true;
+            //return (getInternalFlags() & (1 << config().jvmFieldFlagInternalNullMarkerShift)) != 0;
         }
 
 //        private int internalNullMarkerOffset() {

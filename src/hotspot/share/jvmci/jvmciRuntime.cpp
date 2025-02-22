@@ -445,14 +445,13 @@ JRT_ENTRY(void, JVMCIRuntime::load_unknown_inline(JavaThread* current, flatArray
   assert(array->klass()->is_flatArray_klass(), "should not be called");
 
   assert(array->length() > 0 && index < array->length(), "already checked");
-  flatArrayHandle vah(current, array);
-  oop obj = flatArrayOopDesc::value_alloc_copy_from_index(vah, index, CHECK);
+  oop obj = array->read_value_from_flat_array(index, THREAD);
   current->set_vm_result(obj);
 JRT_END
 
-JRT_LEAF(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index, oopDesc* value))
+JRT_ENTRY(void, JVMCIRuntime::store_unknown_inline(JavaThread* current, flatArrayOopDesc* array, jint index, oopDesc* value))
     assert(array->klass()->is_flatArray_klass(), "should not be called");
-    array->value_copy_to_index(value, index);
+    array->write_value_to_flat_array(value, index, THREAD);
 JRT_END
 
 // Object.notifyAll() fast path, caller does slow path

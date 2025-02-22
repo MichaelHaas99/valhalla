@@ -268,8 +268,8 @@
   nonstatic_field(Klass,                       _super,                                        Klass*)                                \
   nonstatic_field(Klass,                       _super_check_offset,                           juint)                                 \
   nonstatic_field(InstanceKlass,               _adr_inlineklass_fixed_block,                  InlineKlassFixedBlock const *)         \
-  nonstatic_field(InlineKlassFixedBlock,       _first_field_offset,                           int)                                   \
-  nonstatic_field(InlineKlassFixedBlock,       _internal_null_marker_offset,                  int)                                   \
+  nonstatic_field(InlineKlassFixedBlock,       _payload_offset,                               int)                                   \
+  nonstatic_field(InlineKlassFixedBlock,       _null_marker_offset,                           int)                                   \
   nonstatic_field(FieldInfo,                   _null_marker_offset,                           u4)                                    \
   volatile_nonstatic_field(Klass,              _subklass,                                     Klass*)                                \
   nonstatic_field(Klass,                       _layout_helper,                                jint)                                  \
@@ -498,7 +498,6 @@
   declare_constant(FieldInfo::FieldFlags::_ff_flat)                       \
   declare_constant(FieldInfo::FieldFlags::_ff_null_free_inline_type)      \
   declare_constant(FieldInfo::FieldFlags::_ff_null_marker)                \
-  declare_constant(FieldInfo::FieldFlags::_ff_internal_null_marker)       \
   declare_preprocessor_constant("JVM_ACC_VARARGS", JVM_ACC_VARARGS)       \
   declare_preprocessor_constant("JVM_ACC_BRIDGE", JVM_ACC_BRIDGE)         \
   declare_preprocessor_constant("JVM_ACC_ANNOTATION", JVM_ACC_ANNOTATION) \
@@ -840,7 +839,7 @@
   declare_constant(markWord::inline_type_pattern)                         \
   declare_constant(markWord::inline_type_mask_in_place)                   \
   declare_constant(markWord::inline_type_bit_in_place)                    \
-  declare_constant(markWord::flat_array_pattern)                          \
+  declare_constant(markWord::null_free_flat_array_pattern)                \
   declare_constant(markWord::flat_array_mask_in_place)                    \
   declare_constant(markWord::null_free_array_pattern)                     \
   declare_constant(markWord::null_free_array_mask_in_place)               \

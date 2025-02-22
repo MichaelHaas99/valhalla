@@ -51,6 +51,7 @@
 #include "oops/method.inline.hpp"
 #include "oops/objArrayKlass.inline.hpp"
 #include "oops/typeArrayOop.inline.hpp"
+#include "oops/layoutKind.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/methodHandles.hpp"
 #include "prims/nativeLookup.hpp"
@@ -719,8 +720,14 @@ C2V_VMENTRY_NULL(jobject, getFlatArrayType, (JNIEnv* env, jobject, jchar type_ch
 
   if(klass->is_inline_klass()){
     InlineKlass* inline_klass = InlineKlass::cast(klass);
+    ArrayKlass* flat_array_klass;
+    if(inline_klass->flat_array()){
+      flat_array_klass = (ArrayKlass*)inline_klass->flat_array_klass(LayoutKind::NON_ATOMIC_FLAT, CHECK_NULL);
+    }else{
+      flat_array_klass = (ArrayKlass*)inline_klass->null_free_reference_array(CHECK_NULL);
+    }
     // Request a flat array, but we might not actually get it...either way "null-free" are the aaload/aastore semantics
-    ArrayKlass* flat_array_klass = (ArrayKlass*)inline_klass->value_array_klass(CHECK_NULL);
+    //ArrayKlass* flat_array_klass = (ArrayKlass*)inline_klass->flat_array_klass(LayoutKind::NON_ATOMIC_FLAT, CHECK_NULL);
     array_klass = flat_array_klass;
     assert(array_klass->is_null_free_array_klass(), "Expect a null-free array class here");
     //assert(array_klass->is_flatArray_klass, "Expect a flat array class here");

@@ -77,8 +77,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int nextSiblingOffset = getFieldOffset("Klass::_next_sibling", Integer.class, "Klass*");
     final int superCheckOffsetOffset = getFieldOffset("Klass::_super_check_offset", Integer.class, "juint");
     final int secondarySuperCacheOffset = getFieldOffset("Klass::_secondary_super_cache", Integer.class, "Klass*");
-    final int firstFieldOffset = getFieldOffset("InlineKlassFixedBlock::_first_field_offset", Integer.class, "int");
-    final int internalNullMarkerOffset = getFieldOffset("InlineKlassFixedBlock::_internal_null_marker_offset", Integer.class, "int");
+    final int firstFieldOffset = getFieldOffset("InlineKlassFixedBlock::_payload_offset", Integer.class, "int");
     final int nullMarkerOffset = getFieldOffset("FieldInfo::_null_marker_offset", Integer.class, "u4");
     final int inlineKlassFixedBlockAdr = getFieldOffset("InstanceKlass::_adr_inlineklass_fixed_block", Integer.class, "InlineKlassFixedBlock const *");
 
@@ -129,7 +128,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int jvmFieldFlagFlatShift = getConstant("FieldInfo::FieldFlags::_ff_flat", Integer.class);
     final int jvmFieldFlagNullFreeInlineTypeShift = getConstant("FieldInfo::FieldFlags::_ff_null_free_inline_type", Integer.class);
     final int jvmFieldFlagNullMarkerShift = getConstant("FieldInfo::FieldFlags::_ff_null_marker", Integer.class);
-    final int jvmFieldFlagInternalNullMarkerShift = getConstant("FieldInfo::FieldFlags::_ff_internal_null_marker", Integer.class);
+    //final int jvmFieldFlagInternalNullMarkerShift = getConstant("FieldInfo::FieldFlags::_ff_internal_null_marker", Integer.class);
 
     final int jvmAccIsCloneableFast = getConstant("KlassFlags::_misc_is_cloneable_fast", Integer.class);
 
