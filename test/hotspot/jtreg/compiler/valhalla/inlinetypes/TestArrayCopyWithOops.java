@@ -31,13 +31,20 @@
  *          java.base/jdk.internal.vm.annotation
  * @run main/othervm -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
  *
  *                   compiler.valhalla.inlinetypes.TestArrayCopyWithOops
  * @run main/othervm -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
  *                   -XX:-UseArrayFlattening
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
  *                   compiler.valhalla.inlinetypes.TestArrayCopyWithOops
- * @run main/othervm compiler.valhalla.inlinetypes.TestArrayCopyWithOops
+ * @run main/othervm
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::test*
+ *                   -XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestArrayCopyWithOops::create*
+ * compiler.valhalla.inlinetypes.TestArrayCopyWithOops
  */
 
 package compiler.valhalla.inlinetypes;

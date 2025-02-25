@@ -99,7 +99,6 @@ public class TestInlineFieldNonFlattened {
                                "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED",
                                "-XX:-TieredCompilation",
                                "-XX:-UseFieldFlattening")
-                               "-XX:InlineFieldMaxFlatSize=0")
                 .setCompileOnlyTestMethods(TestInlineFieldNonFlattened.class).setGraalLog()
                      .start();
     }

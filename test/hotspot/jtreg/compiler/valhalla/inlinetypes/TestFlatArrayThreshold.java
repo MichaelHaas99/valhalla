@@ -36,7 +36,7 @@
  *                   TestFlatArrayThreshold
  * @run main/othervm -XX:FlatArrayElementMaxOops=1
  *                   TestFlatArrayThreshold
- * @run main/othervm -XX:FlatArrayElementMaxSize=1
+ * @run main/othervm -XX:+UseArrayFlattening
  *                   TestFlatArrayThreshold
  */
 

@@ -274,6 +274,13 @@ public class TestFramework {
         return this;
     }
 
+    public TestFramework setCompileOnlyClass(Class<?> clazz) {
+        //addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*", "-XX:InlineFieldMaxFlatSize=-1", "-DIgnoreCompilerControls=true"/*, "-DPreferCommandLineFlags=true"*/);
+        addFlags("-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::putVal*");
+        addFlags("-DIgnoreCompilerControls=true");
+        return this;
+    }
+
     public TestFramework setGraalLog() {
         addFlags("-Djdk.graal.CompilationFailureAction=Diagnose", "-Djdk.graal.LogFile=/home/michael/projects/logs/log.txt");
         return this;

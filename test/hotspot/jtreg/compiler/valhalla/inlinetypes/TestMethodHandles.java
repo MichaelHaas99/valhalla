@@ -152,6 +152,7 @@ public class TestMethodHandles {
                                      MyValue2Inline.class,
                                      MyValue3.class,
                                      MyValue3Inline.class)
+                .setCompileOnlyTestMethods(TestMethodHandles.class).setGraalLog()
                    .start();
     }
 
