@@ -359,8 +359,6 @@ class LinkResolver: AllStatic {
                              const methodHandle& attached_method,
                              Bytecodes::Code byte, bool check_null_or_abstract, TRAPS);
 
-  static void resolve_invoke_jvmci(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, Bytecodes::Code byte, bool check_null_or_abstract, TRAPS);
-
   // Only resolved method known.
   static void throw_abstract_method_error(const methodHandle& resolved_method, TRAPS) {
     throw_abstract_method_error(resolved_method, methodHandle(), nullptr, CHECK);

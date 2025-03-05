@@ -37,9 +37,11 @@ public interface RegisterConfig {
     Register getReturnRegister(JavaKind kind);
 
     /**
-     * Gets the registers to be used for returning multiple values e.g. used for a scalarized inline object.
+     * Gets the registers to be used for returning multiple values e.g. used for a scalarized inline object. Same procedure as with {@link #getReturnRegister(JavaKind)}.
+     * @param kinds the kinds used to decide if a value will be returned in a general or float register.
+     * @param includeFirstGeneralRegister determines if the first general register, which will contain the oop or tagged hub, should be skipped
      */
-    default Register[] getReturnRegisters(JavaKind[] kinds, boolean includeRax) {
+    default Register[] getReturnRegisters(JavaKind[] kinds, boolean includeFirstGeneralRegister) {
         throw new UnsupportedOperationException("config for multiple register usage on return not implemented yet");
     }
 
@@ -66,7 +68,15 @@ public interface RegisterConfig {
      */
     CallingConvention getCallingConvention(Type type, JavaType returnType, JavaType[] parameterTypes, ValueKindFactory<?> valueKindFactory);
 
-    default AllocatableValue[] getReturnConvention(JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory, boolean includeRax) {
+    /**
+     * Gets the ordered set of registers that are used to return a nullable scalarized inline object according to the return convention.
+     * The first register contains an oop or tagged hub, while the rest contains the field values.
+     *
+     * @param returnTypes                 types of the values being returned
+     * @param valueKindFactory            the factory to create custom {@link ValueKind ValueKinds}
+     * @param includeFirstGeneralRegister determines if the first general register, which will contain the oop or tagged hub, should be skipped
+     */
+    default AllocatableValue[] getReturnConvention(JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory, boolean includeFirstGeneralRegister) {
         throw new UnsupportedOperationException("config for multiple register usage on return not implemented yet");
     }
     /**

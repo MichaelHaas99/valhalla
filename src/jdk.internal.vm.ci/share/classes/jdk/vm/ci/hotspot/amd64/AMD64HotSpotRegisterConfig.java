@@ -45,7 +45,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 
 import jdk.vm.ci.code.Architecture;
 import jdk.vm.ci.code.CallingConvention;
@@ -206,12 +205,12 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
     }
 
     @Override
-    public AllocatableValue[] getReturnConvention(JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory, boolean includeRax) {
+    public AllocatableValue[] getReturnConvention(JavaType[] returnTypes, ValueKindFactory<?> valueKindFactory, boolean includeFirstGeneralRegister) {
         JavaKind[] kinds = new JavaKind[returnTypes.length];
         for (int i = 0; i < returnTypes.length; i++) {
             kinds[i] = returnTypes[i].getJavaKind().getStackKind();
         }
-        return getReturnLocations(getReturnRegisters(kinds, includeRax), returnTypes, valueKindFactory);
+        return getReturnLocations(getReturnRegisters(kinds, includeFirstGeneralRegister), returnTypes, valueKindFactory);
     }
 
     @Override
@@ -324,12 +323,12 @@ public class AMD64HotSpotRegisterConfig implements RegisterConfig {
     }
 
     @Override
-    public Register[] getReturnRegisters(JavaKind[] kinds, boolean includeRax) {
+    public Register[] getReturnRegisters(JavaKind[] kinds, boolean includeFirstGeneralRegister) {
         Register[] registers = new Register[kinds.length];
         RegisterArray generalReturnRegisters = javaGeneralReturnRegisters;
         RegisterArray xmmReturnRegisters = javaXMMParameterRegisters;
 
-        int currentGeneral = includeRax ? 0 : 1;
+        int currentGeneral = includeFirstGeneralRegister ? 0 : 1;
         int currentXMM = 0;
 
         Register register;

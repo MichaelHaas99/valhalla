@@ -164,7 +164,7 @@ void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, methodHandle& method, j
 
       call = nativeCall_at(_instructions->start() + pc_offset);
       call->set_destination(SharedRuntime::get_resolve_virtual_call_stub());
-      if(method()->has_scalarized_args()) {
+      if (method()->has_scalarized_args()) {
       _instructions->relocate(call->instruction_address(),
                                              virtual_call_Relocation::spec(_invoke_mark_pc, _oop_recorder->find_index(method())),
                                              Assembler::call32_operand);
@@ -180,7 +180,7 @@ void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, methodHandle& method, j
 
       call = nativeCall_at(_instructions->start() + pc_offset);
       call->set_destination(SharedRuntime::get_resolve_static_call_stub());
-      if(method()->has_scalarized_args()) {
+      if (method()->has_scalarized_args()) {
         _instructions->relocate(call->instruction_address(),
                                              relocInfo::static_call_type, Assembler::call32_operand,_oop_recorder->find_index(method()));
       }else{

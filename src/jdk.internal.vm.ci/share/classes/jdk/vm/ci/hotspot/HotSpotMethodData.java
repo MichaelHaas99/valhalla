@@ -79,7 +79,7 @@ final class HotSpotMethodData implements MetaspaceObject {
 
         // inherits from branch and two cells for types
         final int acmpDataSize = branchDataSize + cellsToBytes(1)*2;
-        // TODO: get values from VM
+
         final int leftOperandOffset = cellIndexToOffset(3);
         final int rightOperandOffset = cellIndexToOffset(4);
         final int leftInlineTypeFlag = 1 << config.leftInlineTypeFlag;
@@ -821,18 +821,6 @@ final class HotSpotMethodData implements MetaspaceObject {
                 return inlineType;
             }
 
-            @Override
-            public void setDeoptClassCheck(){
-                this.validType=null;
-                this.inlineType=true;
-            }
-
-            @Override
-            public void setDeoptNullCheck(){
-                this.alwaysNull=false;
-                this.neverNull=false;
-                this.maybeNull=false;
-            }
 
         }
 
@@ -888,18 +876,6 @@ final class HotSpotMethodData implements MetaspaceObject {
             @Override
             public SingleTypeEntry getRight() {
                 return right;
-            }
-
-            @Override
-            public void setDeoptClassCheck() {
-                left.setDeoptClassCheck();
-                right.setDeoptClassCheck();
-            }
-
-            @Override
-            public void setDeoptNullCheck() {
-                left.setDeoptNullCheck();
-                right.setDeoptNullCheck();
             }
         }
 

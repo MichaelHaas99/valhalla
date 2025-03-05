@@ -22,7 +22,6 @@
  */
 package jdk.vm.ci.meta;
 
-import jdk.vm.ci.hotspot.HotSpotSignature;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
@@ -556,7 +555,7 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
     }
 
     /**
-     * Finds out if this method has a sclarized receiver.
+     * Finds out if this method has a scalarized receiver.
      *
      * @return true if this method's receiver is passed scalarized, false otherwise
      */
@@ -564,9 +563,6 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
         return false;
     }
 
-    default HotSpotSignature getScalarizedSignature() {
-        throw new UnsupportedOperationException("scalarized signature not yet implemented");
-    }
 
     /**
      * Gets the type information of the method's scalarized return.
@@ -652,7 +648,7 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
     }
 
     /**
-     * Gets the type used for a scalarized parameter to represent it's is not null information.
+     * Gets the type used for a scalarized parameter to represent its is not null information.
      *
      * @param index                         the index of a formal parameter in the signature
      * @param indexIncludesReceiverIfExists true if the receiver is included in the {@code index}, false otherwise
@@ -663,9 +659,9 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
     }
 
     /**
-     * Gets the type information of the method's scalarized receiver.
+     * Gets the ordered type information of each field according to {@link ResolvedJavaType#getInstanceFields(boolean)} of the method's scalarized receiver.
      *
-     * @return the scalarized receiver type which consists of the instance fields.
+     * @return the scalarized receiver which consists of its instance fields.
      */
     default JavaType[] getScalarizedReceiver() {
         throw new UnsupportedOperationException("getScalarizedReceiver is not yet implemented");

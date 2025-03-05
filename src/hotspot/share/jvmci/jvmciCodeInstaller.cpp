@@ -1142,14 +1142,15 @@ int CodeInstaller::map_jvmci_bci(int bci) {
 }
 
 bool has_scalarized_return(methodHandle& methodHandle){
-  if(!InlineTypeReturnedAsFields) return false;
+  if (!InlineTypeReturnedAsFields) {
+    return false;
+  }
   Method* method = methodHandle();
   InlineKlass* klass = method->returns_inline_type(Thread::current());
-  bool has_scalar_ret = false;
-  if(klass != nullptr) {
-    has_scalar_ret = !method->is_native() && klass->can_be_returned_as_fields();
+  if (klass != nullptr) {
+    return !method->is_native() && klass->can_be_returned_as_fields();
   }
-  return has_scalar_ret;
+  return false;
 }
 
 void CodeInstaller::record_scope(jint pc_offset, HotSpotCompiledCodeStream* stream, u1 debug_info_flags, bool full_info, bool is_mh_invoke, bool return_oop, JVMCI_TRAPS) {
@@ -1194,7 +1195,6 @@ void CodeInstaller::record_scope(jint pc_offset, HotSpotCompiledCodeStream* stre
 
       // has_ea_local_in_scope and arg_escape should be added to JVMCI
       const bool return_scalarized     = has_scalarized_return(method);
-      return_oop |= has_scalarized_return(method);
       const bool has_ea_local_in_scope = false;
       const bool arg_escape            = false;
       _debug_recorder->describe_scope(pc_offset, method, nullptr, bci, reexecute, rethrow_exception, is_mh_invoke, return_oop,

@@ -370,14 +370,9 @@ C2V_VMENTRY_NULL(jbyteArray, getBytecode, (JNIEnv* env, jobject, ARGUMENT_PAIR(m
   return JVMCIENV->get_jbyteArray(result);
 C2V_END
 
-C2V_VMENTRY_0(jboolean, isScalarizedParameter, (JNIEnv* env, jobject, ARGUMENT_PAIR(method), jint idx))
+C2V_VMENTRY_0(jbooleanArray, getScalarizedParametersInfo, (JNIEnv* env, jobject, ARGUMENT_PAIR(method), jbooleanArray infoArray, jint len))
   Method* method = UNPACK_PAIR(Method, method);
-  return method->is_scalarized_arg(idx);
-C2V_END
-
-C2V_VMENTRY_0(jbooleanArray, getScalarizedParametersInfo, (JNIEnv* env, jobject, ARGUMENT_PAIR(method), jint len))
-  Method* method = UNPACK_PAIR(Method, method);
-  JVMCIPrimitiveArray result = JVMCIENV->new_booleanArray(len, JVMCI_CHECK_NULL);
+  JVMCIPrimitiveArray result = JVMCIENV->wrap(infoArray);
   for(int i=0; i<len; i++){
     JVMCIENV->put_bool_at(result, i, method->is_scalarized_arg(i));
   }
@@ -3334,8 +3329,7 @@ C2V_VMENTRY_0(jint, getCompilationActivityMode, (JNIEnv* env, jobject))
 
 JNINativeMethod CompilerToVM::methods[] = {
   {CC "getBytecode",                                  CC "(" HS_METHOD2 ")[B",                                                              FN_PTR(getBytecode)},
-  {CC "isScalarizedParameter",                        CC "(" HS_METHOD2 "I)Z",                                                              FN_PTR(isScalarizedParameter)},
-  {CC "getScalarizedParametersInfo",                  CC "(" HS_METHOD2 "I)[Z",                                                             FN_PTR(getScalarizedParametersInfo)},
+  {CC "getScalarizedParametersInfo",                  CC "(" HS_METHOD2 "[ZI)[Z",                                                             FN_PTR(getScalarizedParametersInfo)},
   {CC "hasScalarizedParameters",                      CC "(" HS_METHOD2 ")Z",                                                               FN_PTR(hasScalarizedParameters)},
   {CC "hasScalarizedReturn",                          CC "(" HS_METHOD2 HS_KLASS2 ")Z",                                                     FN_PTR(hasScalarizedReturn)},
   {CC "canBePassedAsFields",                          CC "(" HS_KLASS2 ")Z",                                                                FN_PTR(canBePassedAsFields)},

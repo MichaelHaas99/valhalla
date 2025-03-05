@@ -241,6 +241,10 @@ public final class VirtualObject implements JavaValue {
         return values;
     }
 
+    /**
+     * Virtual objects can also be null. Returns an array containing one value indicating if the virtual object is non-null.
+     */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "`values` is intentional mutable")
     public JavaValue[] getIsNotNull() {
         return isNotNull;
     }
@@ -284,6 +288,11 @@ public final class VirtualObject implements JavaValue {
         this.slotKinds = slotKinds;
     }
 
+    /**
+     * Overwrites the current value with a new one.
+     *
+     * @param isNotNull an array containing one value indicating if the virtual object is non-null.
+     */
     public void setIsNotNull(JavaValue[] isNotNull) {
         this.isNotNull = isNotNull;
     }

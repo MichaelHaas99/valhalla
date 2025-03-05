@@ -130,26 +130,16 @@ final class CompilerToVM {
     private native byte[] getBytecode(HotSpotResolvedJavaMethodImpl method, long methodPointer);
 
     /**
-     * Determines if the parameter {@code index} in the {@code method} is scalarized.
-     *
-     * @return true if the parameter is scalarized
-     */
-    boolean isScalarizedParameter(HotSpotResolvedJavaMethodImpl method, int index) {
-        return isScalarizedParameter(method, method.getMethodPointer(), index);
-    }
-
-    private native boolean isScalarizedParameter(HotSpotResolvedJavaMethodImpl method, long methodPointer, int index);
-
-    /**
-     * Delivers information about scalaraized parameters in the signature of the {@code method}
+     * Delivers information about scalarized parameters in the signature of the {@code method}
      *
      * @return a boolean array with the value true at index i if the parameter is scalarized, false otherwise
      */
     boolean[] getScalarizedParametersInfo(HotSpotResolvedJavaMethodImpl method) {
-        return getScalarizedParametersInfo(method, method.getMethodPointer(), method.getSignature().getParameterCount(!method.isStatic()));
+        int len = method.getSignature().getParameterCount(!method.isStatic());
+        return getScalarizedParametersInfo(method, method.getMethodPointer(), new boolean[len], len);
     }
 
-    private native boolean[] getScalarizedParametersInfo(HotSpotResolvedJavaMethodImpl method, long methodPointer, int parameterLength);
+    private native boolean[] getScalarizedParametersInfo(HotSpotResolvedJavaMethodImpl method, long methodPointer, boolean[] infoArray, int len);
 
     /**
      * Determines if any parameter in the {@code method} is scalarized.

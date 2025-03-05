@@ -237,6 +237,9 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
     @Override
     ResolvedJavaType getArrayClass();
 
+    /**
+     * Gets the array class type used when creating an array with {@link jdk.internal.value.ValueClass#newNullRestrictedArray(Class, int)}
+     */
     default ResolvedJavaType getFlatArrayClass() {
         throw new UnsupportedOperationException();
     }
@@ -413,7 +416,7 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
     }
 
     /**
-     * Checks whether this type has an identity.
+     * Checks whether this type has an identity. See {@link Class#isIdentity()}.
      *
      * @return {@code true} if this type has an identity
      */

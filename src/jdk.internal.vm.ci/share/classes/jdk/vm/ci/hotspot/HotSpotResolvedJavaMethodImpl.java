@@ -829,22 +829,14 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     @Override
     public boolean hasScalarizedReceiver() {
         if (hasScalarizedReceiver.isKnown()) return hasScalarizedReceiver.toBoolean();
-        boolean result = !isStatic() && compilerToVM().isScalarizedParameter(this, 0);
+        boolean result = !isStatic() && isScalarizedParameter(0, true);
         hasScalarizedReceiver = TriState.get(result);
         return result;
     }
 
-    @Override
-    // see ciMethod::get_sig_cc()
-    public HotSpotSignature getScalarizedSignature() {
-        return compilerToVM().getScalarizedSignature(this);
-    }
 
     @Override
-    /*
-     *
-     * see TypeTuple::make_range in opto/type.cpp
-     */
+    // see TypeTuple::make_range in opto/type.cpp
     public JavaType[] getScalarizedReturn() {
         assert hasScalarizedReturn() : "Scalarized return presumed";
         HotSpotResolvedObjectType returnType = getReturnedInlineType();
