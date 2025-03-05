@@ -71,6 +71,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int objectAlignment = getFlag("ObjectAlignmentInBytes", Integer.class);
 
     final int klassOffsetInBytes = getFieldValue("CompilerToVM::Data::oopDesc_klass_offset_in_bytes", Integer.class, "int");
+    public final boolean valhallaEnabled = getFlag("EnableValhalla", Boolean.class);
 
     final int subklassOffset = getFieldOffset("Klass::_subklass", Integer.class, "Klass*");
     final int superOffset = getFieldOffset("Klass::_super", Integer.class, "Klass*");

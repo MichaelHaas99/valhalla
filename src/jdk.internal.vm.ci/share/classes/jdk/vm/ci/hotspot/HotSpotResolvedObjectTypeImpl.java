@@ -450,7 +450,10 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
 
     @Override
     public boolean isIdentity() {
-        return (getAccessFlags() & config().jvmAccIdentity) != 0;
+        if (!config().valhallaEnabled) {
+            return !isInterface();
+        }
+        return isArray() || (getAccessFlags() & config().jvmAccIdentity) != 0;
     }
 
     @Override
@@ -1284,9 +1287,5 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
         byte[] encoded = compilerToVM().getEncodedClassAnnotationData(this, filter);
         return VMSupport.decodeAnnotations(encoded, AnnotationDataDecoder.INSTANCE);
     }
-
-    public boolean canBePassedAsFields() {
-        if (isStatic() || isInterface() || !isIdentity()) return false;
-        return compilerToVM().canBePassedAsFields(this);
-    }
+    
 }
