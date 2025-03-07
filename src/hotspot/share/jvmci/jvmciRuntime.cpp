@@ -494,6 +494,16 @@ JRT_BLOCK_ENTRY(int, JVMCIRuntime::throw_class_cast_exception(JavaThread* curren
   return caller_is_deopted();
 JRT_END
 
+JRT_BLOCK_ENTRY(int, JVMCIRuntime::throw_identity_exception(JavaThread* current, const char* exception, Klass* klass))
+  JRT_BLOCK;
+  ResourceMark rm(current);
+  char* message = SharedRuntime::generate_identity_exception_message(current, klass);
+  TempNewSymbol symbol = SymbolTable::new_symbol(exception);
+  SharedRuntime::throw_and_post_jvmti_exception(current, symbol, message);
+  JRT_BLOCK_END;
+  return caller_is_deopted();
+JRT_END
+
 class ArgumentPusher : public SignatureIterator {
  protected:
   JavaCallArguments*  _jca;

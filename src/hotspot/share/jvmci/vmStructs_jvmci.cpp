@@ -905,6 +905,7 @@
   declare_function(JVMCIRuntime::throw_and_post_jvmti_exception)          \
   declare_function(JVMCIRuntime::throw_klass_external_name_exception)     \
   declare_function(JVMCIRuntime::throw_class_cast_exception)              \
+  declare_function(JVMCIRuntime::throw_identity_exception)                \
   declare_function(JVMCIRuntime::log_primitive)                           \
   declare_function(JVMCIRuntime::log_object)                              \
   declare_function(JVMCIRuntime::log_printf)                              \

@@ -555,6 +555,7 @@ class JVMCIRuntime: public CHeapObj<mtJVMCI> {
   // helper methods to throw exception with complex messages
   static int throw_klass_external_name_exception(JavaThread* current, const char* exception, Klass* klass);
   static int throw_class_cast_exception(JavaThread* current, const char* exception, Klass* caster_klass, Klass* target_klass);
+  static int throw_identity_exception(JavaThread* current, const char* exception, Klass* klass);
 
   // A helper to allow invocation of an arbitrary Java method.  For simplicity the method is
   // restricted to a static method that takes at most one argument.  For calling convention
