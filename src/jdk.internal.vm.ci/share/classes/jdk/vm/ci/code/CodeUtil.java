@@ -439,11 +439,11 @@ public class CodeUtil {
     }
 
     /**
-     * Create a calling convention from a {@link ResolvedJavaMethod} with the parameters scalarized.
+     * Create a calling convention from a {@link ResolvedJavaMethod} with scalarized inline type parameters .
      *
-     * @param scalarizeReceiver decides if also the receiver should be scalarized
+     * @param scalarizeReceiver true if the receiver should be scalarized, false otherwise
      */
-    public static CallingConvention getScalarizedCallingConvention(CodeCacheProvider codeCache, CallingConvention.Type type, ResolvedJavaMethod method, ValueKindFactory<?> valueKindFactory, boolean scalarizeReceiver) {
+    public static CallingConvention getValhallaCallingConvention(CodeCacheProvider codeCache, CallingConvention.Type type, ResolvedJavaMethod method, ValueKindFactory<?> valueKindFactory, boolean scalarizeReceiver) {
         if (!method.hasScalarizedParameters()) return getCallingConvention(codeCache, type, method, valueKindFactory);
         Signature sig = method.getSignature();
         JavaType[] argTypes = method.getScalarizedParameters(scalarizeReceiver);
