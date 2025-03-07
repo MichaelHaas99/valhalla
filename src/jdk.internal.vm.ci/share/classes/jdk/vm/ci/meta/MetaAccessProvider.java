@@ -123,9 +123,5 @@ public interface MetaAccessProvider {
 
     int getArrayBaseOffset(JavaKind elementKind);
 
-    default int getFlatArrayBaseOffset() {
-        throw new UnsupportedOperationException();
-    }
-
     int getArrayIndexScale(JavaKind elementKind);
 }

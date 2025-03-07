@@ -69,7 +69,6 @@ final class CompilerToVM {
     final int ARRAY_FLOAT_BASE_OFFSET;
     final int ARRAY_DOUBLE_BASE_OFFSET;
     final int ARRAY_OBJECT_BASE_OFFSET;
-    final int ARRAY_PRIMITIVE_OBJECT_BASE_OFFSET;
     final int ARRAY_BOOLEAN_INDEX_SCALE;
     final int ARRAY_BYTE_INDEX_SCALE;
     final int ARRAY_SHORT_INDEX_SCALE;
@@ -93,7 +92,6 @@ final class CompilerToVM {
             ARRAY_FLOAT_BASE_OFFSET = arrayBaseOffset(JavaKind.Float.getTypeChar());
             ARRAY_DOUBLE_BASE_OFFSET = arrayBaseOffset(JavaKind.Double.getTypeChar());
             ARRAY_OBJECT_BASE_OFFSET = arrayBaseOffset(JavaKind.Object.getTypeChar());
-            ARRAY_PRIMITIVE_OBJECT_BASE_OFFSET = arrayBaseOffset('Q');
             ARRAY_BOOLEAN_INDEX_SCALE = arrayIndexScale(JavaKind.Boolean.getTypeChar());
             ARRAY_BYTE_INDEX_SCALE = arrayIndexScale(JavaKind.Byte.getTypeChar());
             ARRAY_SHORT_INDEX_SCALE = arrayIndexScale(JavaKind.Short.getTypeChar());
