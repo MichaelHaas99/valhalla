@@ -184,11 +184,6 @@ public final class HotSpotResolvedPrimitiveType extends HotSpotResolvedJavaType 
     }
 
     @Override
-    public boolean isIdentity() {
-        return false;
-    }
-
-    @Override
     public boolean isAssignableFrom(ResolvedJavaType other) {
         assert other != null;
         return other.equals(this);

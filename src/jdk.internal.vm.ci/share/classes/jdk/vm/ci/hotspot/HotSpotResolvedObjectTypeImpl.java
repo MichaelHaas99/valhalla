@@ -450,10 +450,10 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
 
     @Override
     public boolean isIdentity() {
-        if (!config().valhallaEnabled) {
-            return !isInterface();
+        if (config().valhallaEnabled) {
+            return isArray() || (getAccessFlags() & config().jvmAccIdentity) != 0;
         }
-        return isArray() || (getAccessFlags() & config().jvmAccIdentity) != 0;
+        return !isInterface();
     }
 
     @Override
