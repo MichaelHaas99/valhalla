@@ -860,10 +860,10 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
 
     @Override
     public ResolvedJavaField[] getInstanceFields(boolean includeSuperclasses) {
-        return getInstanceFields(includeSuperclasses, true);
+        return getInstanceFields(includeSuperclasses, config().valhallaEnabled);
     }
 
-    public ResolvedJavaField[] getInstanceFields(boolean includeSuperclasses, boolean flat) {
+    public ResolvedJavaField[] getInstanceFields(boolean includeSuperclasses, boolean valhallaEnabled) {
         if (instanceFields == null) {
             if (isArray() || isInterface()) {
                 instanceFields = NO_FIELDS;
@@ -872,7 +872,7 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
                 if (getSuperclass() != null) {
                     prepend = (HotSpotResolvedJavaField[]) getSuperclass().getInstanceFields(true);
                 }
-                if (flat) {
+                if (valhallaEnabled) {
                     instanceFields = getFlattenedFields(prepend);
                 } else {
                     instanceFields = getFields(false, prepend);
