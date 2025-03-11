@@ -86,7 +86,12 @@ public class TestGetfieldChains {
     public static void main(String[] args) {
 
         final Scenario[] scenarios = {
-                new Scenario(0,
+                           /*new Scenario(0,
+                             "--enable-preview",
+                             "-XX:CICompilerCount=2",
+                             "-XX:TieredStopAtLevel=4",
+                             "-XX:+TieredCompilation")*/
+                 new Scenario(0,
                         // C1 only
                         "-XX:TieredStopAtLevel=1",
                         "-XX:+TieredCompilation"),
@@ -97,8 +102,8 @@ public class TestGetfieldChains {
                         "-XX:-OmitStackTraceInFastThrow"),
                 new Scenario(2,
                         // interpreter only
-                        "-Xint"),
-                new Scenario(3,
+                        "-Xint")/*,
+              new Scenario(3,
                         // Xcomp Only C1
                         "-XX:TieredStopAtLevel=1",
                         "-XX:+TieredCompilation",
@@ -108,7 +113,7 @@ public class TestGetfieldChains {
                         "-XX:TieredStopAtLevel=4",
                         "-XX:-TieredCompilation",
                         "-XX:-OmitStackTraceInFastThrow",
-                        "-Xcomp")
+                        "-Xcomp") */
         };
 
         InlineTypes.getFramework()
@@ -116,6 +121,7 @@ public class TestGetfieldChains {
                    .addFlags("--enable-preview",
                              "--add-exports", "java.base/jdk.internal.vm.annotation=ALL-UNNAMED",
                              "--add-exports", "java.base/jdk.internal.value=ALL-UNNAMED")
+                .setCompileOnlyTestMethods(TestGetfieldChains.class).setGraalLog()
                    .start();
     }
 

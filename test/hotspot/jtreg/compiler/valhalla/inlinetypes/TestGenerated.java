@@ -28,9 +28,10 @@
  * @enablePreview
  * @modules java.base/jdk.internal.value
  *          java.base/jdk.internal.vm.annotation
- * @run main/othervm -Xbatch
+ * @run main/othervm
+ *
  *                   compiler.valhalla.inlinetypes.TestGenerated
- * @run main/othervm -Xbatch -XX:-UseArrayFlattening
+ * @run main/othervm -XX:-UseArrayFlattening
  *                   compiler.valhalla.inlinetypes.TestGenerated
  */
 

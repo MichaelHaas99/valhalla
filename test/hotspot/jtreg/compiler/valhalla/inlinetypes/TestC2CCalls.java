@@ -29,29 +29,33 @@
  * @enablePreview
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   TestC2CCalls
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:-UseBimorphicInlining -Xbatch
+ *                   -XX:-UseBimorphicInlining
  *                   -XX:CompileCommand=compileonly,TestC2CCalls*::test*
  *                   -XX:CompileCommand=dontinline,TestC2CCalls*::test*
  *                   TestC2CCalls
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:-UseBimorphicInlining -Xbatch -XX:-ProfileInterpreter
+ *                   -XX:-UseBimorphicInlining  -XX:-ProfileInterpreter
  *                   -XX:CompileCommand=compileonly,TestC2CCalls*::test*
  *                   -XX:CompileCommand=dontinline,TestC2CCalls*::test*
  *                   TestC2CCalls
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:-UseBimorphicInlining -Xbatch
+ *                   -XX:-UseBimorphicInlining
  *                   -XX:CompileCommand=compileonly,TestC2CCalls::test*
  *                   -XX:CompileCommand=dontinline,TestC2CCalls*::test*
  *                   TestC2CCalls
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:-UseBimorphicInlining -Xbatch -XX:-ProfileInterpreter
+ *                   -XX:-UseBimorphicInlining -XX:-ProfileInterpreter
  *                   -XX:CompileCommand=compileonly,TestC2CCalls::test*
  *                   -XX:CompileCommand=dontinline,TestC2CCalls*::test*
  *                   TestC2CCalls
+ *
  */
+
+//-XX:-InlineTypePassFieldsAsArgs
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;

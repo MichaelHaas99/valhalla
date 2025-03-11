@@ -100,6 +100,7 @@ public class TestFlatInArraysFolding {
         }
         Scenario noMethodTraps = new Scenario(5, "-XX:PerMethodTrapLimit=0", "-Xbatch");
         testFramework.addScenarios(noMethodTraps);
+        testFramework.setCompileOnlyTestMethods(TestFlatInArraysFolding.class).setGraalLog();
         testFramework.start();
     }
 

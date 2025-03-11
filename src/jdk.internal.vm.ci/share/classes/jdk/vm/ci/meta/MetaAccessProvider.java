@@ -22,12 +22,12 @@
  */
 package jdk.vm.ci.meta;
 
+import jdk.vm.ci.meta.SpeculationLog.Speculation;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-
-import jdk.vm.ci.meta.SpeculationLog.Speculation;
 
 /**
  * Provides access to the metadata of a class typically provided in a class file.

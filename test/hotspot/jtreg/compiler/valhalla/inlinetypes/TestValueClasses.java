@@ -60,6 +60,7 @@ public class TestValueClasses {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestValueClasses.class).setGraalLog()
                    .addHelperClasses(MyValueClass1.class,
                                      MyValueClass2.class,
                                      MyValueClass2Inline.class)

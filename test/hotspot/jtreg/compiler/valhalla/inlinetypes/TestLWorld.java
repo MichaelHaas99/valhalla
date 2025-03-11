@@ -64,6 +64,7 @@ public class TestLWorld {
         // Make sure Test141Value is linked but not initialized
         Class<?> class2 = Test141Value.class;
         class2.getDeclaredFields();
+        //System.out.println(TestLWorld.class.getCanonicalName()+"\n\n\n\n");
 
         Scenario[] scenarios = InlineTypes.DEFAULT_SCENARIOS;
         scenarios[3].addFlags("-XX:-MonomorphicArrayCheck", "-XX:+UseArrayFlattening");
@@ -71,6 +72,8 @@ public class TestLWorld {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestLWorld.class).setCompileOnlyClass(java.util.HashMap.class).setGraalLog()
+                //.addFlags("-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestLWorld::test*")
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class,
                                      MyValue2Inline.class,
@@ -4652,4 +4655,23 @@ public class TestLWorld {
         Asserts.assertEQ(subValueClassWithInt, testFlatArrayInexactAbstractValueClassLoad(true));
         Asserts.assertEQ(subValueClassWithDouble, testFlatArrayInexactAbstractValueClassLoad(false));
     }
+
+    @Test
+    public MyValue3 testMyValue3(MyValue3 value, MyValue3 value2, MyValue3 value3){
+        return value3;
+    }
+
+    @Run(test = "testMyValue3")
+    public void testMyValue3_verifier() throws Exception {
+        java.util.HashMap<Integer, Integer> a = new java.util.HashMap<>();
+        for(int i = 0;i<100_000;i++){
+            a.put(1,2);
+        }
+        Method helper_m = getClass().getDeclaredMethod("testMyValue3", MyValue3.class, MyValue3.class,MyValue3.class);
+        TestFramework.compile(helper_m, CompLevel.C2);
+        TestFramework.assertCompiledByC2(helper_m);
+        //testMyValue3(MyValue3.create(),MyValue3.create(),MyValue3.create());
+    }
+
+
 }

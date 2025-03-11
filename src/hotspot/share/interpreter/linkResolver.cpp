@@ -1769,7 +1769,7 @@ void LinkResolver::resolve_invokevirtual(CallInfo& result, Handle recv,
 void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, const constantPoolHandle& pool, int index, TRAPS) {
   LinkInfo link_info(pool, index, Bytecodes::_invokeinterface, CHECK);
   Klass* recvrKlass = recv.is_null() ? (Klass*)nullptr : recv->klass();
-  resolve_interface_call(result, recv, recvrKlass, link_info, true, CHECK);
+  resolve_interface_call(result, recv, recvrKlass, link_info, /*check_null_or_abstract*/true, CHECK);
 }
 
 bool LinkResolver::resolve_previously_linked_invokehandle(CallInfo& result, const LinkInfo& link_info, const constantPoolHandle& pool, int index, TRAPS) {

@@ -22,6 +22,8 @@
  */
 package jdk.vm.ci.meta;
 
+import jdk.vm.ci.hotspot.ACmpDataAccessor;
+
 /**
  * An implementation of {@link ProfilingInfo} that can used in the absence of real profile
  * information.
@@ -65,6 +67,11 @@ public final class DefaultProfilingInfo implements ProfilingInfo {
     @Override
     public TriState getExceptionSeen(int bci) {
         return exceptionSeen;
+    }
+
+    @Override
+    public ACmpDataAccessor getACmpData(int bci) {
+        return null;
     }
 
     @Override

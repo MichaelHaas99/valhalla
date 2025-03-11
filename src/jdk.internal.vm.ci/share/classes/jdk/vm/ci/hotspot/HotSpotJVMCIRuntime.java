@@ -1163,6 +1163,7 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
 
     }
 
+
     /**
      * The scale used for the index when accessing elements of an array of this kind.
      *

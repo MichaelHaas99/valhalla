@@ -267,6 +267,25 @@ public class TestFramework {
         return this;
     }
 
+    public TestFramework setCompileOnlyTestMethods(Class<?> clazz) {
+        //addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*", "-XX:InlineFieldMaxFlatSize=-1", "-DIgnoreCompilerControls=true"/*, "-DPreferCommandLineFlags=true"*/);
+        addFlags("-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*");
+        addFlags("-DIgnoreCompilerControls=true");
+        return this;
+    }
+
+    public TestFramework setCompileOnlyClass(Class<?> clazz) {
+        //addFlags("-XX:-InlineTypePassFieldsAsArgs", "-XX:-InlineTypeReturnedAsFields", "-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::test*", "-XX:InlineFieldMaxFlatSize=-1", "-DIgnoreCompilerControls=true"/*, "-DPreferCommandLineFlags=true"*/);
+        addFlags("-XX:CompileCommand=compileonly," + clazz.getCanonicalName() + "::putVal*");
+        addFlags("-DIgnoreCompilerControls=true");
+        return this;
+    }
+
+    public TestFramework setGraalLog() {
+        addFlags("-Djdk.graal.CompilationFailureAction=Diagnose", "-Djdk.graal.LogFile=/home/michael/projects/logs/log.txt");
+        return this;
+    }
+
     /**
      * Add helper classes that can specify additional compile command annotations ({@link ForceCompile @ForceCompile},
      * {@link DontCompile @DontCompile}, {@link ForceInline @ForceInline}, {@link DontInline @DontInline}) to be applied
@@ -323,6 +342,7 @@ public class TestFramework {
             this.scenarios.add(scenario);
         }
         TestFormat.throwIfAnyFailures();
+        addFlags(/*"-XX:-InlineTypePassFieldsAsArgs", */"-DVerifyIR=false", "-Djdk.test.lib.random.seed=-8514275799831337363", "-DIgnoreCompilerControls=false"/*, "-DPreferCommandLineFlags=true"*/);
         return this;
     }
 
@@ -721,7 +741,9 @@ public class TestFramework {
                 List<String> scenarioFlags = scenario.getFlags();
                 String scenarioFlagsString = scenarioFlags.isEmpty() ? "" : " - [" + String.join(", ", scenarioFlags) + "]";
                 System.out.println("Scenario #" + scenario.getIndex() + scenarioFlagsString + ":");
-                additionalFlags.addAll(scenarioFlags);
+                //additionalFlags.addAll(scenarioFlags);
+                scenarioFlags.addAll(additionalFlags);
+                additionalFlags = scenarioFlags;
             }
             String frameworkAndScenarioFlags = additionalFlags.isEmpty() ?
                     "" : " - [" + String.join(", ", additionalFlags) + "]";

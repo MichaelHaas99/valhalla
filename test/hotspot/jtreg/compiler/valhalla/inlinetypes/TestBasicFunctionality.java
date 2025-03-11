@@ -53,8 +53,11 @@ import static compiler.valhalla.inlinetypes.InlineTypes.*;
 public class TestBasicFunctionality {
 
     public static void main(String[] args) {
+        //InlineTypes.DEFAULT_SCENARIOS[0].addFlags("-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestBasicFunctionality::test*");
         InlineTypes.getFramework()
                    .addScenarios(InlineTypes.DEFAULT_SCENARIOS)
+                .setCompileOnlyTestMethods(TestBasicFunctionality.class).setGraalLog()
+                //.addFlags("-XX:CompileCommand=compileonly,compiler.valhalla.inlinetypes.TestBasicFunctionality::test*")
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class,
                                      MyValue2Inline.class,

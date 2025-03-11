@@ -55,6 +55,7 @@ public class TestOnStackReplacement {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestOnStackReplacement.class).setGraalLog()
                    .addHelperClasses(MyValue1.class,
                                      MyValue2.class,
                                      MyValue2Inline.class,

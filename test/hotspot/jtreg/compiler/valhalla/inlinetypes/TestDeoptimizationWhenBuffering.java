@@ -50,35 +50,35 @@ import jdk.test.whitebox.WhiteBox;
  *                   -XX:+DeoptimizeALot -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering C1
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
  *                   -XX:-InlineTypePassFieldsAsArgs -XX:-InlineTypeReturnedAsFields -XX:+UseArrayFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
  *                   -XX:-InlineTypePassFieldsAsArgs -XX:-InlineTypeReturnedAsFields -XX:+UseArrayFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
  *                   -XX:+InlineTypePassFieldsAsArgs -XX:+InlineTypeReturnedAsFields -XX:+UseArrayFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
  *                   -XX:+InlineTypePassFieldsAsArgs -XX:+InlineTypeReturnedAsFields -XX:+UseArrayFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:-AlwaysIncrementalInline
  *                   -XX:+InlineTypePassFieldsAsArgs -XX:+InlineTypeReturnedAsFields -XX:+UseArrayFlattening -XX:-UseFieldFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering
  * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:+DeoptimizeALot -XX:-UseTLAB -Xbatch -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
+ *                   -XX:+DeoptimizeALot -XX:-UseTLAB -XX:-MonomorphicArrayCheck -XX:+AlwaysIncrementalInline
  *                   -XX:+InlineTypePassFieldsAsArgs -XX:+InlineTypeReturnedAsFields -XX:+UseArrayFlattening -XX:-UseFieldFlattening
  *                   -XX:CompileCommand=dontinline,compiler.valhalla.inlinetypes.*::test*
  *                   compiler.valhalla.inlinetypes.TestDeoptimizationWhenBuffering

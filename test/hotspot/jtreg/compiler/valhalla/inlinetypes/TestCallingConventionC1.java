@@ -57,7 +57,7 @@ public class TestCallingConventionC1 {
                              "--enable-preview",
                              "-XX:CICompilerCount=2",
                              "-XX:TieredStopAtLevel=4",
-                             "-XX:+TieredCompilation"),
+                             "-XX:+TieredCompilation") ,
                 // Default: both C1 and C2 are enabled, tiered compilation enabled
                 new Scenario(1,
                              "--enable-preview",
@@ -81,6 +81,7 @@ public class TestCallingConventionC1 {
                              "-XX:+TieredCompilation",
                              "-XX:+IgnoreUnrecognizedVMOptions",
                              "-XX:-PatchALot"),
+                             
                 // Only C2.
                 new Scenario(4,
                              "--enable-preview",
@@ -92,6 +93,7 @@ public class TestCallingConventionC1 {
 
         InlineTypes.getFramework()
                    .addScenarios(scenarios)
+                .setCompileOnlyTestMethods(TestCallingConventionC1.class).setGraalLog()
                    .start();
     }
 

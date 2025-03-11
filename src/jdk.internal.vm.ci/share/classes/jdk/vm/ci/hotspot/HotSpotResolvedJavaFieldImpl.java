@@ -22,22 +22,19 @@
  */
 package jdk.vm.ci.hotspot;
 
+import jdk.internal.vm.VMSupport;
+import jdk.vm.ci.meta.*;
+
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.List;
+
 import static jdk.internal.misc.Unsafe.ADDRESS_SIZE;
 import static jdk.vm.ci.hotspot.CompilerToVM.compilerToVM;
 import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
 import static jdk.vm.ci.hotspot.HotSpotVMConfig.config;
 import static jdk.vm.ci.hotspot.UnsafeAccess.UNSAFE;
-
-import java.lang.annotation.Annotation;
-import java.util.Collections;
-import java.util.List;
-
-import jdk.internal.vm.VMSupport;
-import jdk.vm.ci.meta.AnnotationData;
-import jdk.vm.ci.meta.JavaConstant;
-import jdk.vm.ci.meta.JavaType;
-import jdk.vm.ci.meta.ResolvedJavaType;
-import jdk.vm.ci.meta.UnresolvedJavaType;
 
 /**
  * Represents a field in a HotSpot type.
@@ -45,13 +42,16 @@ import jdk.vm.ci.meta.UnresolvedJavaType;
 class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
 
     private final HotSpotResolvedObjectTypeImpl holder;
+
+    private HotSpotResolvedObjectTypeImpl outerHolder;
+
     private JavaType type;
 
     /**
      * Offset (in bytes) of field from start of its storage container (i.e. {@code instanceOop} or
      * {@code Klass*}).
      */
-    private final int offset;
+    private int offset;
 
     /**
      * Value of {@code fieldDescriptor::index()}.
@@ -108,11 +108,57 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
         return (internalFlags & (1 << config().jvmFieldFlagInternalShift)) != 0;
     }
 
+    @Override
+    public boolean isNullFreeInlineType() {
+        return (internalFlags & (1 << config().jvmFieldFlagNullFreeInlineTypeShift)) != 0;
+    }
+
+    @Override
+    public boolean isFlat() {
+        return (internalFlags & (1 << config().jvmFieldFlagFlatShift)) != 0;
+    }
+
+    @Override
+    public boolean isInitialized() {
+        assert isStatic() : "should only be called on static fields";
+        if (getDeclaringClass().isInitialized()) {
+            return !runtime().getCompilerToVM().readStaticFieldValue(getDeclaringClass(), getOffset(), JavaKind.Object.getTypeChar()).isNull();
+        }
+        return false;
+    }
+
+    @Override
+    public int getNullMarkerOffset() {
+        return holder.getFieldInfo(index).getNullMarkerOffset();
+    }
+
+    @Override
+    public HotSpotResolvedJavaField getNullMarkerField() {
+        HotSpotResolvedJavaType byteType = HotSpotResolvedPrimitiveType.forKind(JavaKind.Byte);
+        return new HotSpotResolvedJavaFieldImpl(holder, byteType, getNullMarkerOffset(), 0, 0, -1) {
+            @Override
+            public String getName() {
+                return "nullMarkerOffset";
+            }
+
+            @Override
+            public int getNullMarkerOffset() {
+                return -1;
+            }
+
+            @Override
+            public JavaConstant getConstantValue() {
+                return null;
+            }
+        };
+        //return new HotSpotResolvedJavaFieldImpl(holder, byteType, getNullMarkerOffset(), 0, 0, -1);
+    }
+
     /**
      * Determines if a given object contains this field.
      *
      * @return true iff this is a non-static field and its declaring class is assignable from
-     *         {@code object}'s class
+     * {@code object}'s class
      */
     @Override
     public boolean isInObject(JavaConstant object) {
@@ -126,6 +172,21 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
     @Override
     public HotSpotResolvedObjectTypeImpl getDeclaringClass() {
         return holder;
+    }
+
+    @Override
+    public HotSpotResolvedObjectTypeImpl getOuterDeclaringClass() {
+        if (outerHolder == null) {
+            return holder;
+        }
+        return outerHolder;
+    }
+
+    @Override
+    public ResolvedJavaField setOuterDeclaringClass(HotSpotResolvedObjectType outerHolder) {
+        HotSpotResolvedJavaFieldImpl field = new HotSpotResolvedJavaFieldImpl(holder, type, offset, classfileFlags, internalFlags, index);
+        field.outerHolder = (HotSpotResolvedObjectTypeImpl) outerHolder;
+        return field;
     }
 
     @Override
@@ -159,6 +220,11 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
         return offset;
     }
 
+    @Override
+    public ResolvedJavaField changeOffset(int newOffset) {
+        return new HotSpotResolvedJavaFieldImpl(holder, type, newOffset, classfileFlags, internalFlags, index);
+    }
+
     /**
      * Gets the value of this field's index (i.e. {@code fieldDescriptor::index()} in the encoded
      * fields of the declaring class.
@@ -184,7 +250,7 @@ class HotSpotResolvedJavaFieldImpl implements HotSpotResolvedJavaField {
      */
     @Override
     public boolean isStable() {
-        return (1 << (config().jvmFieldFlagStableShift ) & internalFlags) != 0;
+        return (1 << (config().jvmFieldFlagStableShift) & internalFlags) != 0;
     }
 
     private boolean hasAnnotations() {

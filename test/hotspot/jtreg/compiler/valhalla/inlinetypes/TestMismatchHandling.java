@@ -35,30 +35,30 @@
  *                   -XX:-Inline -XX:-InlineAccessors -XX:-UseBimorphicInlining -XX:-UseCHA -XX:-UseTypeProfile
  *                   -XX:CompileCommand=compileonly,TestMismatchHandling::test*
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-Inline -XX:-InlineAccessors -XX:-UseBimorphicInlining -XX:-UseCHA -XX:-UseTypeProfile
  *                   -XX:CompileCommand=compileonly,*::method
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-Inline -XX:-InlineAccessors -XX:-UseBimorphicInlining -XX:-UseCHA -XX:-UseTypeProfile
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-Inline -XX:-InlineAccessors -XX:-UseBimorphicInlining -XX:-UseCHA -XX:-UseTypeProfile
  *                   -XX:-InlineTypePassFieldsAsArgs
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-Inline -XX:-InlineAccessors -XX:-UseBimorphicInlining -XX:-UseCHA -XX:-UseTypeProfile
  *                   -XX:-InlineTypeReturnedAsFields
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:+DeoptimizeNMethodBarriersALot
  *                   TestMismatchHandling
- * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -Xbatch
+ * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions
  *                   -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   TestMismatchHandling
  */

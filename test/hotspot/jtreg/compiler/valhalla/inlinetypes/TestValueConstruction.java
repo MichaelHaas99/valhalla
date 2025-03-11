@@ -62,7 +62,7 @@ import jdk.test.whitebox.WhiteBox;
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test* -Xbatch
+ *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test*
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
@@ -75,7 +75,7 @@ import jdk.test.whitebox.WhiteBox;
  * @enablePreview
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
- * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -Xbatch
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:CompileCommand=dontinline,compiler*::helper*
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
@@ -89,7 +89,7 @@ import jdk.test.whitebox.WhiteBox;
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:CompileCommand=dontinline,*MyValue*::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*MyValue*::<init>
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
@@ -102,7 +102,7 @@ import jdk.test.whitebox.WhiteBox;
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:CompileCommand=dontinline,*Object::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*Object::<init>
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
@@ -115,7 +115,7 @@ import jdk.test.whitebox.WhiteBox;
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -XX:+IgnoreUnrecognizedVMOptions
- *                   -XX:+DeoptimizeALot -XX:CompileCommand=dontinline,*Object::<init> -Xbatch
+ *                   -XX:+DeoptimizeALot -XX:CompileCommand=dontinline,*Object::<init>
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
@@ -128,7 +128,7 @@ import jdk.test.whitebox.WhiteBox;
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                   -XX:CompileCommand=dontinline,*MyAbstract::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*MyAbstract::<init>
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
@@ -140,7 +140,7 @@ import jdk.test.whitebox.WhiteBox;
  * @enablePreview
  * @build jdk.test.whitebox.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
- * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -Xbatch
+ * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
@@ -156,7 +156,7 @@ import jdk.test.whitebox.WhiteBox;
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
- *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test* -Xbatch
+ *                   -XX:CompileCommand=compileonly,*TestValueConstruction::test*
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
 
@@ -169,7 +169,7 @@ import jdk.test.whitebox.WhiteBox;
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
- *                   -XX:CompileCommand=dontinline,*MyValue*::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*MyValue*::<init>
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
 
@@ -183,7 +183,7 @@ import jdk.test.whitebox.WhiteBox;
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
- *                   -XX:CompileCommand=dontinline,*Object::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*Object::<init>
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
 
@@ -197,9 +197,10 @@ import jdk.test.whitebox.WhiteBox;
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
  *                   -XX:-TieredCompilation -XX:+StressIncrementalInlining
  *                   -XX:CompileCommand=inline,TestValueConstruction::checkDeopt
- *                   -XX:CompileCommand=dontinline,*MyAbstract::<init> -Xbatch
+ *                   -XX:CompileCommand=dontinline,*MyAbstract::<init>
  *                   compiler.valhalla.inlinetypes.TestValueConstruction
  */
+
 
 public class TestValueConstruction {
     static final WhiteBox WHITE_BOX = WhiteBox.getWhiteBox();

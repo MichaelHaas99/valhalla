@@ -23,26 +23,21 @@
 
 package jdk.vm.ci.hotspot;
 
-import java.lang.reflect.Executable;
-import java.lang.reflect.Field;
-
 import jdk.internal.misc.Unsafe;
 import jdk.vm.ci.code.BytecodeFrame;
 import jdk.vm.ci.code.InstalledCode;
 import jdk.vm.ci.code.InvalidInstalledCodeException;
 import jdk.vm.ci.code.stack.InspectedFrameVisitor;
 import jdk.vm.ci.common.InitTimer;
-import static jdk.vm.ci.common.InitTimer.timer;
 import jdk.vm.ci.common.JVMCIError;
 import jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.Option;
+import jdk.vm.ci.meta.*;
+
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
+
+import static jdk.vm.ci.common.InitTimer.timer;
 import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
-import jdk.vm.ci.meta.Constant;
-import jdk.vm.ci.meta.ConstantReflectionProvider;
-import jdk.vm.ci.meta.JavaConstant;
-import jdk.vm.ci.meta.JavaKind;
-import jdk.vm.ci.meta.JavaType;
-import jdk.vm.ci.meta.ResolvedJavaMethod;
-import jdk.vm.ci.meta.ResolvedJavaType;
 
 /**
  * Calls from Java into HotSpot. The behavior of all the methods in this class that take a native
@@ -131,6 +126,63 @@ final class CompilerToVM {
     }
 
     private native byte[] getBytecode(HotSpotResolvedJavaMethodImpl method, long methodPointer);
+
+    /**
+     * Delivers information about scalarized parameters in the signature of the {@code method}
+     *
+     * @return a boolean array with the value true at index i if the parameter is scalarized, false otherwise
+     */
+    boolean[] getScalarizedParametersInfo(HotSpotResolvedJavaMethodImpl method) {
+        int len = method.getSignature().getParameterCount(!method.isStatic());
+        return getScalarizedParametersInfo(method, method.getMethodPointer(), new boolean[len], len);
+    }
+
+    private native boolean[] getScalarizedParametersInfo(HotSpotResolvedJavaMethodImpl method, long methodPointer, boolean[] infoArray, int len);
+
+    /**
+     * Determines if any parameter in the {@code method} is scalarized.
+     *
+     * @return true if any parameter is scalarized
+     */
+    boolean hasScalarizedParameters(HotSpotResolvedJavaMethodImpl method) {
+        return hasScalarizedParameters(method, method.getMethodPointer());
+    }
+
+    private native boolean hasScalarizedParameters(HotSpotResolvedJavaMethodImpl method, long methodPointer);
+
+    /**
+     * Determines if the return value of the {@code method} is scalarized.
+     *
+     * @return true if the return value is scalarized
+     */
+    boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, HotSpotResolvedObjectTypeImpl inlineType) {
+        return hasScalarizedReturn(method, method.getMethodPointer(), inlineType, inlineType.getMetaspacePointer());
+    }
+
+    private native boolean hasScalarizedReturn(HotSpotResolvedJavaMethodImpl method, long methodPointer, HotSpotResolvedObjectTypeImpl returnType, long inlineTypePointer);
+
+    /**
+     * Computes the scalarized signature of the {@code method}.
+     *
+     * @return the scalarized signature
+     */
+    HotSpotSignature getScalarizedSignature(HotSpotResolvedJavaMethodImpl method) {
+        return getScalarizedSignature(method, method.getMethodPointer());
+    }
+
+    private native HotSpotSignature getScalarizedSignature(HotSpotResolvedJavaMethodImpl method, long methodPointer);
+
+    /**
+     * Determines if a inline type can be passed scalarized as an argument.
+     *
+     * @return true if the inline type can be scalarized
+     */
+    boolean canBePassedAsFields(HotSpotResolvedObjectTypeImpl type) {
+        return canBePassedAsFields(type, type.getKlassPointer());
+    }
+
+    private native boolean canBePassedAsFields(HotSpotResolvedObjectTypeImpl type, long klassPointer);
+
 
     /**
      * Gets the number of entries in {@code method}'s exception handler table or 0 if it has no
@@ -427,11 +479,11 @@ final class CompilerToVM {
     }
 
     private native HotSpotResolvedJavaMethodImpl lookupMethodInPool(HotSpotConstantPool constantPool,
-                    long constantPoolPointer,
-                    int cpi,
-                    byte opcode,
-                    HotSpotResolvedJavaMethodImpl caller,
-                    long callerMethodPointer);
+                                                                    long constantPoolPointer,
+                                                                    int cpi,
+                                                                    byte opcode,
+                                                                    HotSpotResolvedJavaMethodImpl caller,
+                                                                    long callerMethodPointer);
 
     /**
      * Converts the indy index operand of an invokedynamic instruction
@@ -467,10 +519,10 @@ final class CompilerToVM {
      * @return {@code JVM_CONSTANT_MethodRef} or {@code JVM_CONSTANT_InterfaceMethodRef} constant pool entry index for the instruction
      */
     int decodeMethodIndexToCPIndex(HotSpotConstantPool constantPool, int rawIndex) {
-      return decodeMethodIndexToCPIndex(constantPool, constantPool.getConstantPoolPointer(), rawIndex);
-  }
+        return decodeMethodIndexToCPIndex(constantPool, constantPool.getConstantPoolPointer(), rawIndex);
+    }
 
-  private native int decodeMethodIndexToCPIndex(HotSpotConstantPool constantPool, long constantPoolPointer, int rawIndex);
+    private native int decodeMethodIndexToCPIndex(HotSpotConstantPool constantPool, long constantPoolPointer, int rawIndex);
 
     /**
      * Resolves the details for invoking the bootstrap method associated with the
@@ -591,7 +643,7 @@ final class CompilerToVM {
     }
 
     private native HotSpotResolvedObjectTypeImpl resolveFieldInPool(HotSpotConstantPool constantPool, long constantPoolPointer,
-                    int rawIndex, HotSpotResolvedJavaMethodImpl method, long methodPointer, byte opcode, int[] info);
+                                                                    int rawIndex, HotSpotResolvedJavaMethodImpl method, long methodPointer, byte opcode, int[] info);
 
     /**
      * Gets the appendix object (if any) associated with the entry identified by {@code which}.
@@ -636,13 +688,13 @@ final class CompilerToVM {
     }
 
     native int installCode0(long compiledCodeBuffer,
-                    long serializationNS,
-                    boolean withTypeInfo,
-                    HotSpotCompiledCode compiledCode,
-                    Object[] objectPool,
-                    InstalledCode code,
-                    long failedSpeculationsAddress,
-                    byte[] speculations);
+                            long serializationNS,
+                            boolean withTypeInfo,
+                            HotSpotCompiledCode compiledCode,
+                            Object[] objectPool,
+                            InstalledCode code,
+                            long failedSpeculationsAddress,
+                            byte[] speculations);
 
     /**
      * Gets flags specifying optional parts of code info. Only if a flag is set, will the
@@ -697,8 +749,8 @@ final class CompilerToVM {
     }
 
     private native HotSpotResolvedJavaMethodImpl resolveMethod(HotSpotResolvedObjectTypeImpl exactReceiver, long exactReceiverKlass,
-                    HotSpotResolvedJavaMethodImpl method, long methodPointer,
-                    HotSpotResolvedObjectTypeImpl caller, long callerKlass);
+                                                               HotSpotResolvedJavaMethodImpl method, long methodPointer,
+                                                               HotSpotResolvedObjectTypeImpl caller, long callerKlass);
 
     /**
      * Gets the static initializer of {@code type}.
@@ -992,7 +1044,12 @@ final class CompilerToVM {
      * @return null or the resolved method for this location
      * @throws NullPointerException if {@code base == null}
      */
+
     private native HotSpotResolvedObjectTypeImpl getResolvedJavaType0(Object base, long displacement, boolean compressed);
+
+    HotSpotResolvedObjectTypeImpl getResolvedJavaType(Object base, long displacement){
+        return getResolvedJavaType0(base, displacement, false);
+    }
 
     HotSpotResolvedObjectTypeImpl getResolvedJavaType(HotSpotConstantPool base, long displacement) {
         return getResolvedJavaType0(base, displacement, false);
@@ -1098,6 +1155,20 @@ final class CompilerToVM {
     }
 
     native HotSpotResolvedObjectTypeImpl getArrayType(char typeChar, HotSpotResolvedObjectTypeImpl klass, long klassPointer);
+
+    HotSpotResolvedObjectTypeImpl getFlatArrayType(HotSpotResolvedObjectTypeImpl nonPrimitiveKlass) {
+        long nonPrimitiveKlassPointer = nonPrimitiveKlass.getKlassPointer();
+        return getFlatArrayType((char) 0, nonPrimitiveKlass, nonPrimitiveKlassPointer);
+    }
+
+    native HotSpotResolvedObjectTypeImpl getFlatArrayType(char typeChar, HotSpotResolvedObjectTypeImpl klass, long klassPointer);
+
+    JavaConstant getDefaultInlineTypeInstance(HotSpotResolvedObjectTypeImpl nonPrimitiveKlass) {
+        long nonPrimitiveKlassPointer = nonPrimitiveKlass.getKlassPointer();
+        return getDefaultInlineTypeInstance(nonPrimitiveKlass, nonPrimitiveKlassPointer);
+    }
+
+    native JavaConstant getDefaultInlineTypeInstance(HotSpotResolvedObjectTypeImpl klass, long klassPointer);
 
     /**
      * Forces initialization of {@code klass}.
@@ -1419,7 +1490,7 @@ final class CompilerToVM {
     }
 
     native void notifyCompilerInliningEvent(int compileId, HotSpotResolvedJavaMethodImpl caller, long callerPointer,
-                    HotSpotResolvedJavaMethodImpl callee, long calleePointer, boolean succeeded, String message, int bci);
+                                            HotSpotResolvedJavaMethodImpl callee, long calleePointer, boolean succeeded, String message, int bci);
 
     /**
      * Gets the serialized annotation info for {@code type} by calling
@@ -1428,12 +1499,12 @@ final class CompilerToVM {
     byte[] getEncodedClassAnnotationData(HotSpotResolvedObjectTypeImpl type, ResolvedJavaType[] filter) {
         try (KlassPointers a = new KlassPointers(filter)) {
             return getEncodedClassAnnotationData(type, type.getKlassPointer(),
-                            a.types, a.types.length, a.buffer());
+                    a.types, a.types.length, a.buffer());
         }
     }
 
     native byte[] getEncodedClassAnnotationData(HotSpotResolvedObjectTypeImpl type, long klassPointer,
-                    Object filter, int filterLength, long filterKlassPointers);
+                                                Object filter, int filterLength, long filterKlassPointers);
 
     /**
      * Gets the serialized annotation info for {@code method} by calling
@@ -1442,12 +1513,12 @@ final class CompilerToVM {
     byte[] getEncodedExecutableAnnotationData(HotSpotResolvedJavaMethodImpl method, ResolvedJavaType[] filter) {
         try (KlassPointers a = new KlassPointers(filter)) {
             return getEncodedExecutableAnnotationData(method, method.getMethodPointer(),
-                            a.types, a.types.length, a.buffer());
+                    a.types, a.types.length, a.buffer());
         }
     }
 
     native byte[] getEncodedExecutableAnnotationData(HotSpotResolvedJavaMethodImpl method, long methodPointer,
-                    Object filter, int filterLength, long filterKlassPointers);
+                                                     Object filter, int filterLength, long filterKlassPointers);
 
     /**
      * Gets the serialized annotation info for the field denoted by {@code holder} and
@@ -1456,12 +1527,12 @@ final class CompilerToVM {
     byte[] getEncodedFieldAnnotationData(HotSpotResolvedObjectTypeImpl holder, int fieldIndex, ResolvedJavaType[] filter) {
         try (KlassPointers a = new KlassPointers(filter)) {
             return getEncodedFieldAnnotationData(holder, holder.getKlassPointer(), fieldIndex,
-                            a.types, a.types.length, a.buffer());
+                    a.types, a.types.length, a.buffer());
         }
     }
 
     native byte[] getEncodedFieldAnnotationData(HotSpotResolvedObjectTypeImpl holder, long klassPointer, int fieldIndex,
-                    Object filterTypes, int filterLength, long filterKlassPointers);
+                                                Object filterTypes, int filterLength, long filterKlassPointers);
 
     /**
      * Helper for passing {@Klass*} values to native code.
