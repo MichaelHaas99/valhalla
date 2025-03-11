@@ -638,13 +638,13 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
 
 
     /**
-     * Same as {@link #getScalarizedParameterIsNotNullType(int)} but implicitly excluding the receiver from the index.
+     * Same as {@link #getScalarizedParameterNonNullType(int)} but implicitly excluding the receiver from the index.
      *
      * @param index the index of a formal parameter in the signature
      * @return the type representing the is not null information
      */
-    default JavaType getScalarizedParameterIsNotNullType(int index) {
-        return getScalarizedParameterIsNotNullType(index, false);
+    default JavaType getScalarizedParameterNonNullType(int index) {
+        return getScalarizedParameterNonNullType(index, false);
     }
 
     /**
@@ -654,8 +654,8 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
      * @param indexIncludesReceiverIfExists true if the receiver is included in the {@code index}, false otherwise
      * @return the type representing the is not null information
      */
-    default JavaType getScalarizedParameterIsNotNullType(int index, boolean indexIncludesReceiverIfExists) {
-        throw new UnsupportedOperationException("getScalarizedParameterIsNotNull is not supported");
+    default JavaType getScalarizedParameterNonNullType(int index, boolean indexIncludesReceiverIfExists) {
+        throw new UnsupportedOperationException("getScalarizedParameterNonNull is not supported");
     }
 
     /**

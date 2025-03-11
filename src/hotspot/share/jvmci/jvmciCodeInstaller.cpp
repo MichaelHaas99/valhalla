@@ -1102,7 +1102,7 @@ void CodeInstaller::read_virtual_objects(HotSpotCompiledCodeStream* stream, JVMC
       _has_auto_box = true;
     }
     // see code in output.cpp line 812 (PhaseOutput::FillLocArray line)
-    bool check_is_not_null = stream->read_bool("isNotNull");
+    bool check_is_not_null = stream->read_bool("nonNull");
     ScopeValue *is_init = nullptr;
     if (check_is_not_null) {
       ScopeValue* cur_second = nullptr;

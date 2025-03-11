@@ -44,7 +44,7 @@ public final class VirtualObject implements JavaValue {
     private JavaKind[] slotKinds;
     private final int id;
     private boolean isAutoBox;
-    private JavaValue[] isNotNull;
+    private JavaValue[] nonNull;
 
     /**
      * Creates a new {@link VirtualObject} for the given type, with the given fields. If
@@ -245,8 +245,8 @@ public final class VirtualObject implements JavaValue {
      * Virtual objects can also be null. Returns an array containing one value indicating if the virtual object is non-null.
      */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "`values` is intentional mutable")
-    public JavaValue[] getIsNotNull() {
-        return isNotNull;
+    public JavaValue[] getNonNull() {
+        return nonNull;
     }
 
     /**
@@ -291,10 +291,10 @@ public final class VirtualObject implements JavaValue {
     /**
      * Overwrites the current value with a new one.
      *
-     * @param isNotNull an array containing one value indicating if the virtual object is non-null.
+     * @param nonNull an array containing one value indicating if the virtual object is non-null.
      */
-    public void setIsNotNull(JavaValue[] isNotNull) {
-        this.isNotNull = isNotNull;
+    public void setNonNull(JavaValue[] nonNull) {
+        this.nonNull = nonNull;
     }
 
     @Override

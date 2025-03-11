@@ -893,7 +893,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
         JavaType type = signature.getParameterType(index, getDeclaringClass());
         ResolvedJavaType resolvedType = type.resolve(getDeclaringClass());
         assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
-        return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, nullFree, getScalarizedParameterIsNotNullType(previousIndex, indexIncludesReceiverIfExists));
+        return getFieldsArray((HotSpotResolvedObjectTypeImpl) resolvedType, nullFree, getScalarizedParameterNonNullType(previousIndex, indexIncludesReceiverIfExists));
 
     }
 
@@ -911,7 +911,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     }
 
     @Override
-    public JavaType getScalarizedParameterIsNotNullType(int index, boolean indexIncludesReceiverIfExists) {
+    public JavaType getScalarizedParameterNonNullType(int index, boolean indexIncludesReceiverIfExists) {
         assert isScalarizedParameter(index, indexIncludesReceiverIfExists) /*&& !isParameterNullFree(index, indexIncludesReceiverIfExists)*/ : "Scalarized nullable parameter presumed";
         return HotSpotResolvedPrimitiveType.forKind(IS_NOT_NULL_KIND);
     }
@@ -945,7 +945,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
                 ResolvedJavaType resolvedType = type.resolve(getDeclaringClass());
                 assert resolvedType instanceof HotSpotResolvedObjectType : "HotSpotResolvedObjectType expected";
                 boolean nullFree = isParameterNullFree(i);
-                types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, nullFree, nullFree ? null : getScalarizedParameterIsNotNullType(i)));
+                types.addAll(getFields((HotSpotResolvedObjectTypeImpl) resolvedType, nullFree, nullFree ? null : getScalarizedParameterNonNullType(i)));
             } else {
                 types.add(type);
             }
@@ -955,18 +955,18 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
     }
 
 
-    private ArrayList<JavaType> getFields(HotSpotResolvedObjectTypeImpl holder, boolean nullFree, JavaType isNotNullType) {
+    private ArrayList<JavaType> getFields(HotSpotResolvedObjectTypeImpl holder, boolean nullFree, JavaType nonNullType) {
         ResolvedJavaField[] fields = holder.getInstanceFields(true);
         ArrayList<JavaType> types = new ArrayList<>(fields.length + (!nullFree ? 1 : 0));
-        if (!nullFree) types.add(isNotNullType);
+        if (!nullFree) types.add(nonNullType);
         for (int i = 0; i < fields.length; i++) {
             types.add(fields[i].getType());
         }
         return types;
     }
 
-    private JavaType[] getFieldsArray(HotSpotResolvedObjectTypeImpl holder, boolean nullFree, JavaType isNotNullType) {
-        ArrayList<JavaType> list = getFields(holder, nullFree, isNotNullType);
+    private JavaType[] getFieldsArray(HotSpotResolvedObjectTypeImpl holder, boolean nullFree, JavaType nonNullType) {
+        ArrayList<JavaType> list = getFields(holder, nullFree, nonNullType);
         return list.toArray(new JavaType[list.size()]);
     }
 }
