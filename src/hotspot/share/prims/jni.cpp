@@ -53,6 +53,8 @@
 #include "nmt/memTracker.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/arrayOop.hpp"
+#include "oops/flatArrayOop.inline.hpp"
+#include "oops/inlineKlass.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/instanceOop.hpp"
 #include "oops/klass.inline.hpp"
@@ -420,8 +422,9 @@ JNI_ENTRY(jfieldID, jni_FromReflectedField(JNIEnv *env, jobject field))
   // The jfieldID is the offset of the field within the object
   // It may also have hash bits for k, if VerifyJNIFields is turned on.
   int offset = InstanceKlass::cast(k1)->field_offset( slot );
+  bool is_flat = InstanceKlass::cast(k1)->field_is_flat(slot);
   assert(InstanceKlass::cast(k1)->contains_field_offset(offset), "stay within object");
-  ret = jfieldIDWorkaround::to_instance_jfieldID(k1, offset);
+  ret = jfieldIDWorkaround::to_instance_jfieldID(k1, offset, is_flat);
   return ret;
 JNI_END
 
@@ -438,7 +441,7 @@ JNI_ENTRY(jobject, jni_ToReflectedMethod(JNIEnv *env, jclass cls, jmethodID meth
   methodHandle m (THREAD, Method::resolve_jmethod_id(method_id));
   assert(m->is_static() == (isStatic != 0), "jni_ToReflectedMethod access flags doesn't match");
   oop reflection_method;
-  if (m->is_object_initializer()) {
+  if (m->is_object_constructor()) {
     reflection_method = Reflection::new_constructor(m, CHECK_NULL);
   } else {
     // Note: Static initializers can theoretically be here, if JNI users manage
@@ -797,7 +800,7 @@ class JNI_ArgumentPusherVaArg : public JNI_ArgumentPusher {
     case T_DOUBLE:      push_double(va_arg(_ap, jdouble)); break;
 
     case T_ARRAY:
-    case T_OBJECT:      push_object(va_arg(_ap, jobject)); break;
+    case T_OBJECT: push_object(va_arg(_ap, jobject)); break;
     default:            ShouldNotReachHere();
     }
   }
@@ -837,7 +840,8 @@ class JNI_ArgumentPusherArray : public JNI_ArgumentPusher {
     case T_FLOAT:       push_float((_ap++)->f); break;
     case T_DOUBLE:      push_double((_ap++)->d); break;
     case T_ARRAY:
-    case T_OBJECT:      push_object((_ap++)->l); break;
+    case T_OBJECT:
+    case T_FLAT_ELEMENT: push_object((_ap++)->l); break;
     default:            ShouldNotReachHere();
     }
   }
@@ -964,7 +968,13 @@ JNI_ENTRY(jobject, jni_AllocObject(JNIEnv *env, jclass clazz))
   jobject ret = nullptr;
   DT_RETURN_MARK(AllocObject, jobject, (const jobject&)ret);
 
-  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
+  oop clazzoop = JNIHandles::resolve_non_null(clazz);
+  Klass* k = java_lang_Class::as_Klass(clazzoop);
+  if (k == nullptr || k->is_inline_klass()) {
+    ResourceMark rm(THREAD);
+    THROW_(vmSymbols::java_lang_InstantiationException(), nullptr);
+  }
+  instanceOop i = InstanceKlass::allocate_instance(clazzoop, CHECK_NULL);
   ret = JNIHandles::make_local(THREAD, i);
   return ret;
 JNI_END
@@ -978,13 +988,21 @@ JNI_ENTRY(jobject, jni_NewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID,
   jobject obj = nullptr;
   DT_RETURN_MARK(NewObjectA, jobject, (const jobject&)obj);
 
-  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
+  oop clazzoop = JNIHandles::resolve_non_null(clazz);
+  Klass* k = java_lang_Class::as_Klass(clazzoop);
+  if (k == nullptr) {
+    ResourceMark rm(THREAD);
+    THROW_(vmSymbols::java_lang_InstantiationException(), nullptr);
+  }
+
+  instanceOop i = InstanceKlass::allocate_instance(clazzoop, CHECK_NULL);
   obj = JNIHandles::make_local(THREAD, i);
   JavaValue jvalue(T_VOID);
   JNI_ArgumentPusherArray ap(methodID, args);
   jni_invoke_nonstatic(env, &jvalue, obj, JNI_NONVIRTUAL, methodID, &ap, CHECK_NULL);
+
   return obj;
-JNI_END
+  JNI_END
 
 
 DT_RETURN_MARK_DECL(NewObjectV, jobject
@@ -996,11 +1014,19 @@ JNI_ENTRY(jobject, jni_NewObjectV(JNIEnv *env, jclass clazz, jmethodID methodID,
   jobject obj = nullptr;
   DT_RETURN_MARK(NewObjectV, jobject, (const jobject&)obj);
 
-  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
+  oop clazzoop = JNIHandles::resolve_non_null(clazz);
+  Klass* k = java_lang_Class::as_Klass(clazzoop);
+  if (k == nullptr) {
+    ResourceMark rm(THREAD);
+    THROW_(vmSymbols::java_lang_InstantiationException(), nullptr);
+  }
+
+  instanceOop i = InstanceKlass::allocate_instance(clazzoop, CHECK_NULL);
   obj = JNIHandles::make_local(THREAD, i);
   JavaValue jvalue(T_VOID);
   JNI_ArgumentPusherVaArg ap(methodID, args);
   jni_invoke_nonstatic(env, &jvalue, obj, JNI_NONVIRTUAL, methodID, &ap, CHECK_NULL);
+
   return obj;
 JNI_END
 
@@ -1014,7 +1040,14 @@ JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, 
   jobject obj = nullptr;
   DT_RETURN_MARK(NewObject, jobject, (const jobject&)obj);
 
-  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
+  oop clazzoop = JNIHandles::resolve_non_null(clazz);
+  Klass* k = java_lang_Class::as_Klass(clazzoop);
+  if (k == nullptr) {
+    ResourceMark rm(THREAD);
+    THROW_(vmSymbols::java_lang_InstantiationException(), nullptr);
+  }
+
+  instanceOop i = InstanceKlass::allocate_instance(clazzoop, CHECK_NULL);
   obj = JNIHandles::make_local(THREAD, i);
   va_list args;
   va_start(args, methodID);
@@ -1022,6 +1055,7 @@ JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, 
   JNI_ArgumentPusherVaArg ap(methodID, args);
   jni_invoke_nonstatic(env, &jvalue, obj, JNI_NONVIRTUAL, methodID, &ap, CHECK_NULL);
   va_end(args);
+
   return obj;
 JNI_END
 
@@ -1772,7 +1806,7 @@ JNI_ENTRY(jfieldID, jni_GetFieldID(JNIEnv *env, jclass clazz,
 
   // A jfieldID for a non-static field is simply the offset of the field within the instanceOop
   // It may also have hash bits for k, if VerifyJNIFields is turned on.
-  ret = jfieldIDWorkaround::to_instance_jfieldID(k, fd.offset());
+  ret = jfieldIDWorkaround::to_instance_jfieldID(k, fd.offset(), fd.is_flat());
   return ret;
 JNI_END
 
@@ -1782,18 +1816,30 @@ JNI_ENTRY(jobject, jni_GetObjectField(JNIEnv *env, jobject obj, jfieldID fieldID
   oop o = JNIHandles::resolve_non_null(obj);
   Klass* k = o->klass();
   int offset = jfieldIDWorkaround::from_instance_jfieldID(k, fieldID);
+  oop res = nullptr;
   // Keep JVMTI addition small and only check enabled flag here.
   // jni_GetField_probe() assumes that is okay to create handles.
   if (JvmtiExport::should_post_field_access()) {
     o = JvmtiExport::jni_GetField_probe(thread, obj, o, k, fieldID, false);
   }
-  oop loaded_obj = HeapAccess<ON_UNKNOWN_OOP_REF>::oop_load_at(o, offset);
-  jobject ret = JNIHandles::make_local(THREAD, loaded_obj);
+  if (!jfieldIDWorkaround::is_flat_jfieldID(fieldID)) {
+    res = HeapAccess<ON_UNKNOWN_OOP_REF>::oop_load_at(o, offset);
+  } else {
+    assert(k->is_instance_klass(), "Only instance can have flat fields");
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    fieldDescriptor fd;
+    bool found = ik->find_field_from_offset(offset, false, &fd);  // performance bottleneck
+    assert(found, "Field not found");
+    InstanceKlass* holder = fd.field_holder();
+    assert(holder->field_is_flat(fd.index()), "Must be");
+    InlineLayoutInfo* li = holder->inline_layout_info_adr(fd.index());
+    InlineKlass* field_vklass = li->klass();
+    res = field_vklass->read_payload_from_addr(o, ik->field_offset(fd.index()), li->kind(), CHECK_NULL);
+  }
+  jobject ret = JNIHandles::make_local(THREAD, res);
   HOTSPOT_JNI_GETOBJECTFIELD_RETURN(ret);
   return ret;
 JNI_END
-
-
 
 #define DEFINE_GETFIELD(Return,Fieldname,Result \
   , EntryProbe, ReturnProbe) \
@@ -1880,7 +1926,28 @@ JNI_ENTRY_NO_PRESERVE(void, jni_SetObjectField(JNIEnv *env, jobject obj, jfieldI
     field_value.l = value;
     o = JvmtiExport::jni_SetField_probe(thread, obj, o, k, fieldID, false, JVM_SIGNATURE_CLASS, (jvalue *)&field_value);
   }
-  HeapAccess<ON_UNKNOWN_OOP_REF>::oop_store_at(o, offset, JNIHandles::resolve(value));
+  if (!jfieldIDWorkaround::is_flat_jfieldID(fieldID)) {
+    oop v = JNIHandles::resolve(value);
+    if (v == nullptr) {
+      InstanceKlass *ik = InstanceKlass::cast(k);
+      fieldDescriptor fd;
+      ik->find_field_from_offset(offset, false, &fd);
+      if (fd.is_null_free_inline_type()) {
+        THROW_MSG(vmSymbols::java_lang_NullPointerException(), "Cannot store null in a null-restricted field");
+      }
+    }
+    HeapAccess<ON_UNKNOWN_OOP_REF>::oop_store_at(o, offset, v);
+  } else {
+    assert(k->is_instance_klass(), "Only instances can have flat fields");
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    fieldDescriptor fd;
+    ik->find_field_from_offset(offset, false, &fd);
+    InstanceKlass* holder = fd.field_holder();
+    InlineLayoutInfo* li = holder->inline_layout_info_adr(fd.index());
+    InlineKlass* vklass = li->klass();
+    oop v = JNIHandles::resolve(value);
+    vklass->write_value_to_addr(v, ((char*)(oopDesc*)o) + offset, li->kind(), true, CHECK);
+  }
   HOTSPOT_JNI_SETOBJECTFIELD_RETURN();
 JNI_END
 
@@ -2305,16 +2372,26 @@ JNI_ENTRY(jobject, jni_GetObjectArrayElement(JNIEnv *env, jobjectArray array, js
  HOTSPOT_JNI_GETOBJECTARRAYELEMENT_ENTRY(env, array, index);
   jobject ret = nullptr;
   DT_RETURN_MARK(GetObjectArrayElement, jobject, (const jobject&)ret);
-  objArrayOop a = objArrayOop(JNIHandles::resolve_non_null(array));
-  if (a->is_within_bounds(index)) {
-    ret = JNIHandles::make_local(THREAD, a->obj_at(index));
-    return ret;
+  oop res = nullptr;
+  arrayOop arr((arrayOop)JNIHandles::resolve_non_null(array));
+  if (arr->is_within_bounds(index)) {
+    if (arr->is_flatArray()) {
+      flatArrayOop a = flatArrayOop(JNIHandles::resolve_non_null(array));
+      res = a->read_value_from_flat_array(index, CHECK_NULL);
+      assert(res != nullptr || !arr->is_null_free_array(), "Invalid value");
+    } else {
+      assert(arr->is_objArray(), "If not a valueArray. must be an objArray");
+      objArrayOop a = objArrayOop(JNIHandles::resolve_non_null(array));
+      res = a->obj_at(index);
+    }
   } else {
     ResourceMark rm(THREAD);
     stringStream ss;
-    ss.print("Index %d out of bounds for length %d", index, a->length());
+    ss.print("Index %d out of bounds for length %d", index,arr->length());
     THROW_MSG_NULL(vmSymbols::java_lang_ArrayIndexOutOfBoundsException(), ss.as_string());
   }
+  ret = JNIHandles::make_local(THREAD, res);
+  return ret;
 JNI_END
 
 DT_VOID_RETURN_MARK_DECL(SetObjectArrayElement
@@ -2324,30 +2401,46 @@ JNI_ENTRY(void, jni_SetObjectArrayElement(JNIEnv *env, jobjectArray array, jsize
  HOTSPOT_JNI_SETOBJECTARRAYELEMENT_ENTRY(env, array, index, value);
   DT_VOID_RETURN_MARK(SetObjectArrayElement);
 
-  objArrayOop a = objArrayOop(JNIHandles::resolve_non_null(array));
-  oop v = JNIHandles::resolve(value);
-  if (a->is_within_bounds(index)) {
-    if (v == nullptr || v->is_a(ObjArrayKlass::cast(a->klass())->element_klass())) {
-      a->obj_at_put(index, v);
-    } else {
-      ResourceMark rm(THREAD);
-      stringStream ss;
-      Klass *bottom_kl = ObjArrayKlass::cast(a->klass())->bottom_klass();
-      ss.print("type mismatch: can not store %s to %s[%d]",
-               v->klass()->external_name(),
-               bottom_kl->is_typeArray_klass() ? type2name_tab[ArrayKlass::cast(bottom_kl)->element_type()] : bottom_kl->external_name(),
-               index);
-      for (int dims = ArrayKlass::cast(a->klass())->dimension(); dims > 1; --dims) {
-        ss.print("[]");
-      }
-      THROW_MSG(vmSymbols::java_lang_ArrayStoreException(), ss.as_string());
-    }
-  } else {
-    ResourceMark rm(THREAD);
-    stringStream ss;
-    ss.print("Index %d out of bounds for length %d", index, a->length());
-    THROW_MSG(vmSymbols::java_lang_ArrayIndexOutOfBoundsException(), ss.as_string());
-  }
+   bool oob = false;
+   int length = -1;
+   oop res = nullptr;
+   arrayOop arr((arrayOop)JNIHandles::resolve_non_null(array));
+   if (arr->is_within_bounds(index)) {
+     if (arr->is_flatArray()) {
+       flatArrayOop a = flatArrayOop(JNIHandles::resolve_non_null(array));
+       oop v = JNIHandles::resolve(value);
+       FlatArrayKlass* vaklass = FlatArrayKlass::cast(a->klass());
+       InlineKlass* element_vklass = vaklass->element_klass();
+       a->write_value_to_flat_array(v, index, CHECK);
+     } else {
+       assert(arr->is_objArray(), "If not a valueArray. must be an objArray");
+       objArrayOop a = objArrayOop(JNIHandles::resolve_non_null(array));
+       oop v = JNIHandles::resolve(value);
+       if (v == nullptr || v->is_a(ObjArrayKlass::cast(a->klass())->element_klass())) {
+         if (v == nullptr && ObjArrayKlass::cast(a->klass())->is_null_free_array_klass()) {
+           THROW_MSG(vmSymbols::java_lang_NullPointerException(), "Cannot store null in a null-restricted array");
+         }
+         a->obj_at_put(index, v);
+       } else {
+         ResourceMark rm(THREAD);
+         stringStream ss;
+         Klass *bottom_kl = ObjArrayKlass::cast(a->klass())->bottom_klass();
+         ss.print("type mismatch: can not store %s to %s[%d]",
+             v->klass()->external_name(),
+             bottom_kl->is_typeArray_klass() ? type2name_tab[ArrayKlass::cast(bottom_kl)->element_type()] : bottom_kl->external_name(),
+                 index);
+         for (int dims = ArrayKlass::cast(a->klass())->dimension(); dims > 1; --dims) {
+           ss.print("[]");
+         }
+         THROW_MSG(vmSymbols::java_lang_ArrayStoreException(), ss.as_string());
+       }
+     }
+   } else {
+     ResourceMark rm(THREAD);
+     stringStream ss;
+     ss.print("Index %d out of bounds for length %d", index, arr->length());
+     THROW_MSG(vmSymbols::java_lang_ArrayIndexOutOfBoundsException(), ss.as_string());
+   }
 JNI_END
 
 
@@ -2723,7 +2816,7 @@ JNI_ENTRY(jint, jni_MonitorEnter(JNIEnv *env, jobject jobj))
   }
 
   Handle obj(thread, JNIHandles::resolve_non_null(jobj));
-  ObjectSynchronizer::jni_enter(obj, thread);
+  ObjectSynchronizer::jni_enter(obj, CHECK_(JNI_ERR));
   return JNI_OK;
 JNI_END
 
@@ -3804,6 +3897,10 @@ static jint attach_current_thread(JavaVM *vm, void **penv, void *_args, bool dae
 
   thread->cache_global_variables();
 
+  // Set the _monitor_owner_id to the next thread_id temporarily while initialization runs.
+  // Do it now before we make this thread visible in Threads::add().
+  thread->set_monitor_owner_id(ThreadIdentifier::next());
+
   // This thread will not do a safepoint check, since it has
   // not been added to the Thread list yet.
   { MutexLocker ml(Threads_lock);
@@ -3842,6 +3939,9 @@ static jint attach_current_thread(JavaVM *vm, void **penv, void *_args, bool dae
     thread->smr_delete();
     return JNI_ERR;
   }
+
+  // Update the _monitor_owner_id with the tid value.
+  thread->set_monitor_owner_id(java_lang_Thread::thread_id(thread->threadObj()));
 
   // Want this inside 'attaching via jni'.
   JFR_ONLY(Jfr::on_thread_start(thread);)

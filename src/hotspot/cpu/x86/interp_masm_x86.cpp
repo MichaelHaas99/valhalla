@@ -28,9 +28,11 @@
 #include "interpreter/interpreterRuntime.hpp"
 #include "logging/log.hpp"
 #include "oops/arrayOop.hpp"
+#include "oops/constMethodFlags.hpp"
 #include "oops/markWord.hpp"
 #include "oops/methodData.hpp"
 #include "oops/method.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/resolvedFieldEntry.hpp"
 #include "oops/resolvedIndyEntry.hpp"
 #include "oops/resolvedMethodEntry.hpp"
@@ -53,11 +55,7 @@ void InterpreterMacroAssembler::jump_to_entry(address entry) {
 void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& mdo_addr) {
   Label update, next, none;
 
-#ifdef _LP64
   assert_different_registers(obj, rscratch1, mdo_addr.base(), mdo_addr.index());
-#else
-  assert_different_registers(obj, mdo_addr.base(), mdo_addr.index());
-#endif
 
   interp_verify_oop(obj, atos);
 
@@ -72,9 +70,7 @@ void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& md
 
   bind(update);
   load_klass(obj, obj, rscratch1);
-#ifdef _LP64
   mov(rscratch1, obj);
-#endif
 
   xorptr(obj, mdo_addr);
   testptr(obj, TypeEntries::type_klass_mask);
@@ -89,7 +85,7 @@ void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& md
   jccb(Assembler::equal, none);
   cmpptr(mdo_addr, TypeEntries::null_seen);
   jccb(Assembler::equal, none);
-#ifdef _LP64
+
   // There is a chance that the checks above (re-reading profiling
   // data from memory) fail if another thread has just set the
   // profiling to this obj's klass
@@ -97,7 +93,6 @@ void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& md
   xorptr(obj, mdo_addr);
   testptr(obj, TypeEntries::type_klass_mask);
   jccb(Assembler::zero, next);
-#endif
 
   // different than before. Cannot keep accurate profile.
   orptr(mdo_addr, TypeEntries::type_unknown);
@@ -172,7 +167,7 @@ void InterpreterMacroAssembler::profile_arguments_type(Register mdp, Register ca
         // argument. tmp is the number of cells left in the
         // CallTypeData/VirtualCallTypeData to reach its end. Non null
         // if there's a return to profile.
-        assert(ReturnTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(), "can't move past ret type");
+        assert(SingleTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(), "can't move past ret type");
         shll(tmp, log2i_exact((int)DataLayout::cell_size));
         addptr(mdp, tmp);
       }
@@ -217,7 +212,7 @@ void InterpreterMacroAssembler::profile_return_type(Register mdp, Register ret, 
       bind(do_profile);
     }
 
-    Address mdo_ret_addr(mdp, -in_bytes(ReturnTypeEntry::size()));
+    Address mdo_ret_addr(mdp, -in_bytes(SingleTypeEntry::size()));
     mov(tmp, ret);
     profile_obj_type(tmp, mdo_ret_addr);
 
@@ -314,7 +309,6 @@ void InterpreterMacroAssembler::call_VM_base(Register oop_result,
   //       really make a difference for these runtime calls, since they are
   //       slow anyway. Btw., bcp must be saved/restored since it may change
   //       due to GC.
-  NOT_LP64(assert(java_thread == noreg , "not expecting a precomputed java thread");)
   save_bcp();
 #ifdef ASSERT
   {
@@ -335,7 +329,6 @@ void InterpreterMacroAssembler::call_VM_base(Register oop_result,
   restore_locals();
 }
 
-#ifdef _LP64
 void InterpreterMacroAssembler::call_VM_preemptable(Register oop_result,
                                                     address entry_point,
                                                     Register arg_1) {
@@ -387,13 +380,6 @@ void InterpreterMacroAssembler::restore_after_resume(bool is_native) {
     push(ltos);
   }
 }
-#else
-void InterpreterMacroAssembler::call_VM_preemptable(Register oop_result,
-                         address entry_point,
-                         Register arg_1) {
-  MacroAssembler::call_VM(oop_result, entry_point, arg_1);
-}
-#endif  // _LP64
 
 void InterpreterMacroAssembler::check_and_handle_popframe(Register java_thread) {
   if (JvmtiExport::can_pop_frame()) {
@@ -404,8 +390,7 @@ void InterpreterMacroAssembler::check_and_handle_popframe(Register java_thread) 
     // don't want to reenter.
     // This method is only called just after the call into the vm in
     // call_VM_base, so the arg registers are available.
-    Register pop_cond = NOT_LP64(java_thread) // Not clear if any other register is available on 32 bit
-                        LP64_ONLY(c_rarg0);
+    Register pop_cond = c_rarg0;
     movl(pop_cond, Address(java_thread, JavaThread::popframe_condition_offset()));
     testl(pop_cond, JavaThread::popframe_pending_bit);
     jcc(Assembler::zero, L);
@@ -416,18 +401,15 @@ void InterpreterMacroAssembler::check_and_handle_popframe(Register java_thread) 
     call_VM_leaf(CAST_FROM_FN_PTR(address, Interpreter::remove_activation_preserving_args_entry));
     jmp(rax);
     bind(L);
-    NOT_LP64(get_thread(java_thread);)
   }
 }
 
 void InterpreterMacroAssembler::load_earlyret_value(TosState state) {
-  Register thread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
-  NOT_LP64(get_thread(thread);)
-  movptr(rcx, Address(thread, JavaThread::jvmti_thread_state_offset()));
+  movptr(rcx, Address(r15_thread, JavaThread::jvmti_thread_state_offset()));
   const Address tos_addr(rcx, JvmtiThreadState::earlyret_tos_offset());
   const Address oop_addr(rcx, JvmtiThreadState::earlyret_oop_offset());
   const Address val_addr(rcx, JvmtiThreadState::earlyret_value_offset());
-#ifdef _LP64
+
   switch (state) {
     case atos: movptr(rax, oop_addr);
                movptr(oop_addr, NULL_WORD);
@@ -443,41 +425,18 @@ void InterpreterMacroAssembler::load_earlyret_value(TosState state) {
     case vtos: /* nothing to do */                  break;
     default  : ShouldNotReachHere();
   }
-  // Clean up tos value in the thread object
-  movl(tos_addr, ilgl);
-  movl(val_addr, NULL_WORD);
-#else
-  const Address val_addr1(rcx, JvmtiThreadState::earlyret_value_offset()
-                             + in_ByteSize(wordSize));
-  switch (state) {
-    case atos: movptr(rax, oop_addr);
-               movptr(oop_addr, NULL_WORD);
-               interp_verify_oop(rax, state);         break;
-    case ltos:
-               movl(rdx, val_addr1);               // fall through
-    case btos:                                     // fall through
-    case ztos:                                     // fall through
-    case ctos:                                     // fall through
-    case stos:                                     // fall through
-    case itos: movl(rax, val_addr);                   break;
-    case ftos: load_float(val_addr);                  break;
-    case dtos: load_double(val_addr);                 break;
-    case vtos: /* nothing to do */                    break;
-    default  : ShouldNotReachHere();
-  }
-#endif // _LP64
+
   // Clean up tos value in the thread object
   movl(tos_addr, ilgl);
   movptr(val_addr, NULL_WORD);
-  NOT_LP64(movptr(val_addr1, NULL_WORD);)
 }
 
 
 void InterpreterMacroAssembler::check_and_handle_earlyret(Register java_thread) {
   if (JvmtiExport::can_force_early_return()) {
     Label L;
-    Register tmp = LP64_ONLY(c_rarg0) NOT_LP64(java_thread);
-    Register rthread = LP64_ONLY(r15_thread) NOT_LP64(java_thread);
+    Register tmp = c_rarg0;
+    Register rthread = r15_thread;
 
     movptr(tmp, Address(rthread, JavaThread::jvmti_thread_state_offset()));
     testptr(tmp, tmp);
@@ -492,18 +451,11 @@ void InterpreterMacroAssembler::check_and_handle_earlyret(Register java_thread) 
 
     // Call Interpreter::remove_activation_early_entry() to get the address of the
     // same-named entrypoint in the generated interpreter code.
-    NOT_LP64(get_thread(java_thread);)
     movptr(tmp, Address(rthread, JavaThread::jvmti_thread_state_offset()));
-#ifdef _LP64
     movl(tmp, Address(tmp, JvmtiThreadState::earlyret_tos_offset()));
     call_VM_leaf(CAST_FROM_FN_PTR(address, Interpreter::remove_activation_early_entry), tmp);
-#else
-    pushl(Address(tmp, JvmtiThreadState::earlyret_tos_offset()));
-    call_VM_leaf(CAST_FROM_FN_PTR(address, Interpreter::remove_activation_early_entry), 1);
-#endif // _LP64
     jmp(rax);
     bind(L);
-    NOT_LP64(get_thread(java_thread);)
   }
 }
 
@@ -567,7 +519,8 @@ void InterpreterMacroAssembler::load_resolved_klass_at_index(Register klass,
 // Kills:
 //      rcx, rdi
 void InterpreterMacroAssembler::gen_subtype_check(Register Rsub_klass,
-                                                  Label& ok_is_subtype) {
+                                                  Label& ok_is_subtype,
+                                                  bool profile) {
   assert(Rsub_klass != rax, "rax holds superklass");
   LP64_ONLY(assert(Rsub_klass != r14, "r14 holds locals");)
   LP64_ONLY(assert(Rsub_klass != r13, "r13 holds bcp");)
@@ -575,29 +528,14 @@ void InterpreterMacroAssembler::gen_subtype_check(Register Rsub_klass,
   assert(Rsub_klass != rdi, "rdi holds 2ndary super array scan ptr");
 
   // Profile the not-null value's klass.
-  profile_typecheck(rcx, Rsub_klass, rdi); // blows rcx, reloads rdi
+  if (profile) {
+    profile_typecheck(rcx, Rsub_klass, rdi); // blows rcx, reloads rdi
+  }
 
   // Do the check.
   check_klass_subtype(Rsub_klass, rax, rcx, ok_is_subtype); // blows rcx
 }
 
-
-#ifndef _LP64
-void InterpreterMacroAssembler::f2ieee() {
-  if (IEEEPrecision) {
-    fstp_s(Address(rsp, 0));
-    fld_s(Address(rsp, 0));
-  }
-}
-
-
-void InterpreterMacroAssembler::d2ieee() {
-  if (IEEEPrecision) {
-    fstp_d(Address(rsp, 0));
-    fld_d(Address(rsp, 0));
-  }
-}
-#endif // _LP64
 
 // Java Expression Stack
 
@@ -637,7 +575,6 @@ void InterpreterMacroAssembler::pop_d(XMMRegister r) {
   addptr(rsp, 2 * Interpreter::stackElementSize);
 }
 
-#ifdef _LP64
 void InterpreterMacroAssembler::pop_i(Register r) {
   // XXX can't use pop currently, upper half non clean
   movl(r, Address(rsp, 0));
@@ -688,105 +625,6 @@ void InterpreterMacroAssembler::push(TosState state) {
   default  : ShouldNotReachHere();
   }
 }
-#else
-void InterpreterMacroAssembler::pop_i(Register r) {
-  pop(r);
-}
-
-void InterpreterMacroAssembler::pop_l(Register lo, Register hi) {
-  pop(lo);
-  pop(hi);
-}
-
-void InterpreterMacroAssembler::pop_f() {
-  fld_s(Address(rsp, 0));
-  addptr(rsp, 1 * wordSize);
-}
-
-void InterpreterMacroAssembler::pop_d() {
-  fld_d(Address(rsp, 0));
-  addptr(rsp, 2 * wordSize);
-}
-
-
-void InterpreterMacroAssembler::pop(TosState state) {
-  switch (state) {
-    case atos: pop_ptr(rax);                                 break;
-    case btos:                                               // fall through
-    case ztos:                                               // fall through
-    case ctos:                                               // fall through
-    case stos:                                               // fall through
-    case itos: pop_i(rax);                                   break;
-    case ltos: pop_l(rax, rdx);                              break;
-    case ftos:
-      if (UseSSE >= 1) {
-        pop_f(xmm0);
-      } else {
-        pop_f();
-      }
-      break;
-    case dtos:
-      if (UseSSE >= 2) {
-        pop_d(xmm0);
-      } else {
-        pop_d();
-      }
-      break;
-    case vtos: /* nothing to do */                           break;
-    default  : ShouldNotReachHere();
-  }
-  interp_verify_oop(rax, state);
-}
-
-
-void InterpreterMacroAssembler::push_l(Register lo, Register hi) {
-  push(hi);
-  push(lo);
-}
-
-void InterpreterMacroAssembler::push_f() {
-  // Do not schedule for no AGI! Never write beyond rsp!
-  subptr(rsp, 1 * wordSize);
-  fstp_s(Address(rsp, 0));
-}
-
-void InterpreterMacroAssembler::push_d() {
-  // Do not schedule for no AGI! Never write beyond rsp!
-  subptr(rsp, 2 * wordSize);
-  fstp_d(Address(rsp, 0));
-}
-
-
-void InterpreterMacroAssembler::push(TosState state) {
-  interp_verify_oop(rax, state);
-  switch (state) {
-    case atos: push_ptr(rax); break;
-    case btos:                                               // fall through
-    case ztos:                                               // fall through
-    case ctos:                                               // fall through
-    case stos:                                               // fall through
-    case itos: push_i(rax);                                    break;
-    case ltos: push_l(rax, rdx);                               break;
-    case ftos:
-      if (UseSSE >= 1) {
-        push_f(xmm0);
-      } else {
-        push_f();
-      }
-      break;
-    case dtos:
-      if (UseSSE >= 2) {
-        push_d(xmm0);
-      } else {
-        push_d();
-      }
-      break;
-    case vtos: /* nothing to do */                             break;
-    default  : ShouldNotReachHere();
-  }
-}
-#endif // _LP64
-
 
 // Helpers for swap and dup
 void InterpreterMacroAssembler::load_ptr(int n, Register val) {
@@ -821,9 +659,7 @@ void InterpreterMacroAssembler::jump_from_interpreted(Register method, Register 
     // interp_only_mode if these events CAN be enabled.
     // interp_only is an int, on little endian it is sufficient to test the byte only
     // Is a cmpl faster?
-    LP64_ONLY(temp = r15_thread;)
-    NOT_LP64(get_thread(temp);)
-    cmpb(Address(temp, JavaThread::interp_only_mode_offset()), 0);
+    cmpb(Address(r15_thread, JavaThread::interp_only_mode_offset()), 0);
     jccb(Assembler::zero, run_compiled_code);
     jmp(Address(method, Method::interpreter_entry_offset()));
     bind(run_compiled_code);
@@ -846,7 +682,6 @@ void InterpreterMacroAssembler::dispatch_base(TosState state,
                                               address* table,
                                               bool verifyoop,
                                               bool generate_poll) {
-  verify_FPU(1, state);
   if (VerifyActivationFrameSize) {
     Label L;
     mov(rcx, rbp);
@@ -864,7 +699,6 @@ void InterpreterMacroAssembler::dispatch_base(TosState state,
   }
 
   address* const safepoint_table = Interpreter::safept_table(state);
-#ifdef _LP64
   Label no_safepoint, dispatch;
   if (table != safepoint_table && generate_poll) {
     NOT_PRODUCT(block_comment("Thread-local Safepoint poll"));
@@ -879,27 +713,6 @@ void InterpreterMacroAssembler::dispatch_base(TosState state,
   lea(rscratch1, ExternalAddress((address)table));
   bind(dispatch);
   jmp(Address(rscratch1, rbx, Address::times_8));
-
-#else
-  Address index(noreg, rbx, Address::times_ptr);
-  if (table != safepoint_table && generate_poll) {
-    NOT_PRODUCT(block_comment("Thread-local Safepoint poll"));
-    Label no_safepoint;
-    const Register thread = rcx;
-    get_thread(thread);
-    testb(Address(thread, JavaThread::polling_word_offset()), SafepointMechanism::poll_bit());
-
-    jccb(Assembler::zero, no_safepoint);
-    ArrayAddress dispatch_addr(ExternalAddress((address)safepoint_table), index);
-    jump(dispatch_addr, noreg);
-    bind(no_safepoint);
-  }
-
-  {
-    ArrayAddress dispatch_addr(ExternalAddress((address)table), index);
-    jump(dispatch_addr, noreg);
-  }
-#endif // _LP64
 }
 
 void InterpreterMacroAssembler::dispatch_only(TosState state, bool generate_poll) {
@@ -951,24 +764,19 @@ void InterpreterMacroAssembler::narrow(Register result) {
   bind(notBool);
   cmpl(rcx, T_BYTE);
   jcc(Assembler::notEqual, notByte);
-  LP64_ONLY(movsbl(result, result);)
-  NOT_LP64(shll(result, 24);)      // truncate upper 24 bits
-  NOT_LP64(sarl(result, 24);)      // and sign-extend byte
+  movsbl(result, result);
   jmp(done);
 
   bind(notByte);
   cmpl(rcx, T_CHAR);
   jcc(Assembler::notEqual, notChar);
-  LP64_ONLY(movzwl(result, result);)
-  NOT_LP64(andl(result, 0xFFFF);)  // truncate upper 16 bits
+  movzwl(result, result);
   jmp(done);
 
   bind(notChar);
   // cmpl(rcx, T_SHORT);  // all that's left
   // jcc(Assembler::notEqual, done);
-  LP64_ONLY(movswl(result, result);)
-  NOT_LP64(shll(result, 16);)      // truncate upper 16 bits
-  NOT_LP64(sarl(result, 16);)      // and sign-extend short
+  movswl(result, result);
 
   // Nothing to do for T_INT
   bind(done);
@@ -998,12 +806,9 @@ void InterpreterMacroAssembler::remove_activation(
   // result check if synchronized method
   Label unlocked, unlock, no_unlock;
 
-  const Register rthread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
-  const Register robj    = LP64_ONLY(c_rarg1) NOT_LP64(rdx);
-  const Register rmon    = LP64_ONLY(c_rarg1) NOT_LP64(rcx);
-                              // monitor pointers need different register
-                              // because rdx may have the result in it
-  NOT_LP64(get_thread(rthread);)
+  const Register rthread = r15_thread;
+  const Register robj    = c_rarg1;
+  const Register rmon    = c_rarg1;
 
   // The below poll is for the stack watermark barrier. It allows fixing up frames lazily,
   // that would normally not be safe to use. Such bad returns into unsafe territory of
@@ -1016,7 +821,6 @@ void InterpreterMacroAssembler::remove_activation(
   push(state);
   set_last_Java_frame(rthread, noreg, rbp, (address)pc(), rscratch1);
   super_call_VM_leaf(CAST_FROM_FN_PTR(address, InterpreterRuntime::at_unwind), rthread);
-  NOT_LP64(get_thread(rthread);) // call_VM clobbered it, restore
   reset_last_Java_frame(rthread, true);
   pop(state);
   bind(fast_path);
@@ -1027,7 +831,7 @@ void InterpreterMacroAssembler::remove_activation(
   movbool(rbx, do_not_unlock_if_synchronized);
   movbool(do_not_unlock_if_synchronized, false); // reset the flag
 
- // get method access flags
+  // get method access flags
   movptr(rcx, Address(rbp, frame::interpreter_frame_method_offset * wordSize));
   load_unsigned_short(rcx, Address(rcx, Method::access_flags_offset()));
   testl(rcx, JVM_ACC_SYNCHRONIZED);
@@ -1057,7 +861,6 @@ void InterpreterMacroAssembler::remove_activation(
   pop(state);
   if (throw_monitor_exception) {
     // Entry already unlocked, need to throw exception
-    NOT_LP64(empty_FPU_stack();)  // remove possible return value from FPU-stack, otherwise stack could overflow
     call_VM(noreg, CAST_FROM_FN_PTR(address,
                    InterpreterRuntime::throw_illegal_monitor_state_exception));
     should_not_reach_here();
@@ -1066,7 +869,6 @@ void InterpreterMacroAssembler::remove_activation(
     // install an illegal_monitor_state_exception.  Continue with
     // stack unrolling.
     if (install_monitor_exception) {
-      NOT_LP64(empty_FPU_stack();)
       call_VM(noreg, CAST_FROM_FN_PTR(address,
                      InterpreterRuntime::new_illegal_monitor_state_exception));
     }
@@ -1108,7 +910,6 @@ void InterpreterMacroAssembler::remove_activation(
 
     if (throw_monitor_exception) {
       // Throw exception
-      NOT_LP64(empty_FPU_stack();)
       MacroAssembler::call_VM(noreg,
                               CAST_FROM_FN_PTR(address, InterpreterRuntime::
                                    throw_illegal_monitor_state_exception));
@@ -1124,7 +925,6 @@ void InterpreterMacroAssembler::remove_activation(
       pop(state);
 
       if (install_monitor_exception) {
-        NOT_LP64(empty_FPU_stack();)
         call_VM(noreg, CAST_FROM_FN_PTR(address,
                                         InterpreterRuntime::
                                         new_illegal_monitor_state_exception));
@@ -1153,16 +953,12 @@ void InterpreterMacroAssembler::remove_activation(
     notify_method_exit(state, SkipNotifyJVMTI); // preserve TOSCA
   }
 
-  // remove activation
-  // get sender sp
-  movptr(rbx,
-         Address(rbp, frame::interpreter_frame_sender_sp_offset * wordSize));
   if (StackReservedPages > 0) {
+    movptr(rbx,
+               Address(rbp, frame::interpreter_frame_sender_sp_offset * wordSize));
     // testing if reserved zone needs to be re-enabled
-    Register rthread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
+    Register rthread = r15_thread;
     Label no_reserved_zone_enabling;
-
-    NOT_LP64(get_thread(rthread);)
 
     // check if already enabled - if so no re-enabling needed
     assert(sizeof(StackOverflow::StackGuardState) == 4, "unexpected size");
@@ -1179,6 +975,46 @@ void InterpreterMacroAssembler::remove_activation(
     should_not_reach_here();
 
     bind(no_reserved_zone_enabling);
+  }
+
+  // remove activation
+  // get sender sp
+  movptr(rbx,
+         Address(rbp, frame::interpreter_frame_sender_sp_offset * wordSize));
+
+  if (state == atos && InlineTypeReturnedAsFields) {
+    // Check if we are returning an non-null inline type and load its fields into registers
+    Label skip;
+    test_oop_is_not_inline_type(rax, rscratch1, skip);
+
+#ifndef _LP64
+    super_call_VM_leaf(StubRoutines::load_inline_type_fields_in_regs());
+#else
+    // Load fields from a buffered value with an inline class specific handler
+    load_klass(rdi, rax, rscratch1);
+    movptr(rdi, Address(rdi, InstanceKlass::adr_inlineklass_fixed_block_offset()));
+    movptr(rdi, Address(rdi, InlineKlass::unpack_handler_offset()));
+    // Unpack handler can be null if inline type is not scalarizable in returns
+    testptr(rdi, rdi);
+    jcc(Assembler::zero, skip);
+    call(rdi);
+#endif
+#ifdef ASSERT
+    // TODO 8284443 Enable
+    if (StressCallingConvention && false) {
+      Label skip_stress;
+      movptr(rscratch1, Address(rbp, frame::interpreter_frame_method_offset * wordSize));
+      movl(rscratch1, Address(rscratch1, Method::flags_offset()));
+      testl(rcx, MethodFlags::has_scalarized_return_flag());
+      jcc(Assembler::zero, skip_stress);
+      load_klass(rax, rax, rscratch1);
+      orptr(rax, 1);
+      bind(skip_stress);
+    }
+#endif
+    // call above kills the value in rbx. Reload it.
+    movptr(rbx, Address(rbp, frame::interpreter_frame_sender_sp_offset * wordSize));
+    bind(skip);
   }
   leave();                           // remove frame anchor
   pop(ret_addr);                     // get return address
@@ -1200,6 +1036,60 @@ void InterpreterMacroAssembler::get_method_counters(Register method,
   bind(has_counters);
 }
 
+void InterpreterMacroAssembler::allocate_instance(Register klass, Register new_obj,
+                                                  Register t1, Register t2,
+                                                  bool clear_fields, Label& alloc_failed) {
+  MacroAssembler::allocate_instance(klass, new_obj, t1, t2, clear_fields, alloc_failed);
+  if (DTraceMethodProbes) {
+    // Trigger dtrace event for fastpath
+    push(atos);
+    call_VM_leaf(CAST_FROM_FN_PTR(address, static_cast<int (*)(oopDesc*)>(SharedRuntime::dtrace_object_alloc)), new_obj);
+    pop(atos);
+  }
+}
+
+void InterpreterMacroAssembler::read_flat_field(Register entry, Register tmp1, Register tmp2, Register obj) {
+  Label alloc_failed, done;
+  const Register alloc_temp = LP64_ONLY(rscratch1) NOT_LP64(rsi);
+  const Register dst_temp   = LP64_ONLY(rscratch2) NOT_LP64(rdi);
+  assert_different_registers(obj, entry, tmp1, tmp2, dst_temp, r8, r9);
+
+  // FIXME: code below could be re-written to better use InlineLayoutInfo data structure
+  // see aarch64 version
+
+  // Grap the inline field klass
+  const Register field_klass = tmp1;
+  load_unsigned_short(tmp2, Address(entry, in_bytes(ResolvedFieldEntry::field_index_offset())));
+  movptr(tmp1, Address(entry, ResolvedFieldEntry::field_holder_offset()));
+  get_inline_type_field_klass(tmp1, tmp2, field_klass);
+
+  // allocate buffer
+  push(obj);  // push object being read from     // FIXME spilling on stack could probably be avoided by using tmp2
+  allocate_instance(field_klass, obj, alloc_temp, dst_temp, false, alloc_failed);
+
+  // Have an oop instance buffer, copy into it
+  load_unsigned_short(r9, Address(entry, in_bytes(ResolvedFieldEntry::field_index_offset())));
+  movptr(r8, Address(entry, in_bytes(ResolvedFieldEntry::field_holder_offset())));
+  inline_layout_info(r8, r9, r8); // holder, index, info => InlineLayoutInfo into r8
+
+  payload_addr(obj, dst_temp, field_klass);
+  pop(alloc_temp);             // restore object being read from
+  load_sized_value(tmp2, Address(entry, in_bytes(ResolvedFieldEntry::field_offset_offset())), sizeof(int), true /*is_signed*/);
+  lea(tmp2, Address(alloc_temp, tmp2));
+  // call_VM_leaf, clobbers a few regs, save restore new obj
+  push(obj);
+  // access_value_copy(IS_DEST_UNINITIALIZED, tmp2, dst_temp, field_klass);
+  flat_field_copy(IS_DEST_UNINITIALIZED, tmp2, dst_temp, r8);
+  pop(obj);
+  jmp(done);
+
+  bind(alloc_failed);
+  pop(obj);
+  call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::read_flat_field),
+          obj, entry);
+  get_vm_result(obj, r15_thread);
+  bind(done);
+}
 
 // Lock object
 //
@@ -1209,8 +1099,7 @@ void InterpreterMacroAssembler::get_method_counters(Register method,
 // Kills:
 //      rax, rbx
 void InterpreterMacroAssembler::lock_object(Register lock_reg) {
-  assert(lock_reg == LP64_ONLY(c_rarg1) NOT_LP64(rdx),
-         "The argument is only for looks. It must be c_rarg1");
+  assert(lock_reg == c_rarg1, "The argument is only for looks. It must be c_rarg1");
 
   if (LockingMode == LM_MONITOR) {
     call_VM_preemptable(noreg,
@@ -1221,7 +1110,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 
     const Register swap_reg = rax; // Must use rax for cmpxchg instruction
     const Register tmp_reg = rbx;
-    const Register obj_reg = LP64_ONLY(c_rarg3) NOT_LP64(rcx); // Will contain the oop
+    const Register obj_reg = c_rarg3; // Will contain the oop
     const Register rklass_decode_tmp = rscratch1;
 
     const int obj_offset = in_bytes(BasicObjectLock::obj_offset());
@@ -1239,19 +1128,18 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     }
 
     if (LockingMode == LM_LIGHTWEIGHT) {
-#ifdef _LP64
       const Register thread = r15_thread;
       lightweight_lock(lock_reg, obj_reg, swap_reg, thread, tmp_reg, slow_case);
-#else
-      // Lacking registers and thread on x86_32. Always take slow path.
-      jmp(slow_case);
-#endif
     } else if (LockingMode == LM_LEGACY) {
       // Load immediate 1 into swap_reg %rax
       movl(swap_reg, 1);
 
       // Load (object->mark() | 1) into swap_reg %rax
       orptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
+      if (EnableValhalla) {
+        // Mask inline_type bit such that we go to the slow path if object is an inline type
+        andptr(swap_reg, ~((int) markWord::inline_type_bit_in_place));
+      }
 
       // Save (object->mark() | 1) into BasicLock's displaced header
       movptr(Address(lock_reg, mark_offset), swap_reg);
@@ -1263,7 +1151,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
       cmpxchgptr(lock_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
       jcc(Assembler::zero, count_locking);
 
-      const int zero_bits = LP64_ONLY(7) NOT_LP64(3);
+      const int zero_bits = 7;
 
       // Fast check for recursive lock.
       //
@@ -1328,8 +1216,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 //      rscratch1 (scratch reg)
 // rax, rbx, rcx, rdx
 void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
-  assert(lock_reg == LP64_ONLY(c_rarg1) NOT_LP64(rdx),
-         "The argument is only for looks. It must be c_rarg1");
+  assert(lock_reg == c_rarg1, "The argument is only for looks. It must be c_rarg1");
 
   if (LockingMode == LM_MONITOR) {
     call_VM_leaf(CAST_FROM_FN_PTR(address, InterpreterRuntime::monitorexit), lock_reg);
@@ -1337,8 +1224,8 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
     Label count_locking, done, slow_case;
 
     const Register swap_reg   = rax;  // Must use rax for cmpxchg instruction
-    const Register header_reg = LP64_ONLY(c_rarg2) NOT_LP64(rbx);  // Will contain the old oopMark
-    const Register obj_reg    = LP64_ONLY(c_rarg3) NOT_LP64(rcx);  // Will contain the oop
+    const Register header_reg = c_rarg2;  // Will contain the old oopMark
+    const Register obj_reg    = c_rarg3;  // Will contain the oop
 
     save_bcp(); // Save in case of exception
 
@@ -1355,12 +1242,7 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
     movptr(Address(lock_reg, BasicObjectLock::obj_offset()), NULL_WORD);
 
     if (LockingMode == LM_LIGHTWEIGHT) {
-#ifdef _LP64
       lightweight_unlock(obj_reg, swap_reg, r15_thread, header_reg, slow_case);
-#else
-      // Lacking registers and thread on x86_32. Always take slow path.
-      jmp(slow_case);
-#endif
     } else if (LockingMode == LM_LEGACY) {
       // Load the old header from BasicLock structure
       movptr(header_reg, Address(swap_reg,
@@ -1436,8 +1318,8 @@ void InterpreterMacroAssembler::verify_method_data_pointer() {
   Label verify_continue;
   push(rax);
   push(rbx);
-  Register arg3_reg = LP64_ONLY(c_rarg3) NOT_LP64(rcx);
-  Register arg2_reg = LP64_ONLY(c_rarg2) NOT_LP64(rdx);
+  Register arg3_reg = c_rarg3;
+  Register arg2_reg = c_rarg2;
   push(arg3_reg);
   push(arg2_reg);
   test_method_data_pointer(arg3_reg, verify_continue); // If mdp is zero, continue
@@ -1609,7 +1491,7 @@ void InterpreterMacroAssembler::profile_taken_branch(Register mdp,
 }
 
 
-void InterpreterMacroAssembler::profile_not_taken_branch(Register mdp) {
+void InterpreterMacroAssembler::profile_not_taken_branch(Register mdp, bool acmp) {
   if (ProfileInterpreter) {
     Label profile_continue;
 
@@ -1621,7 +1503,7 @@ void InterpreterMacroAssembler::profile_not_taken_branch(Register mdp) {
 
     // The method data pointer needs to be updated to correspond to
     // the next bytecode
-    update_mdp_by_constant(mdp, in_bytes(BranchData::branch_data_size()));
+    update_mdp_by_constant(mdp, acmp ? in_bytes(ACmpData::acmp_data_size()): in_bytes(BranchData::branch_data_size()));
     bind(profile_continue);
   }
 }
@@ -1684,7 +1566,7 @@ void InterpreterMacroAssembler::profile_virtual_call(Register receiver,
     }
 
     // Record the receiver type.
-    record_klass_in_profile(receiver, mdp, reg2, true);
+    record_klass_in_profile(receiver, mdp, reg2);
     bind(skip_receiver_profile);
 
     // The method data pointer needs to be updated to reflect the new target.
@@ -1704,10 +1586,9 @@ void InterpreterMacroAssembler::profile_virtual_call(Register receiver,
 // function is recursive, to generate the required tree structured code.
 // It's the interpreter, so we are trading off code space for speed.
 // See below for example code.
-void InterpreterMacroAssembler::record_klass_in_profile_helper(
-                                        Register receiver, Register mdp,
-                                        Register reg2, int start_row,
-                                        Label& done, bool is_virtual_call) {
+void InterpreterMacroAssembler::record_klass_in_profile_helper(Register receiver, Register mdp,
+                                                               Register reg2, int start_row,
+                                                               Label& done) {
   if (TypeProfileWidth == 0) {
     increment_mdp_data_at(mdp, in_bytes(CounterData::count_offset()));
   } else {
@@ -1811,13 +1692,11 @@ void InterpreterMacroAssembler::record_item_in_profile_helper(Register item, Reg
 //   }
 //   done:
 
-void InterpreterMacroAssembler::record_klass_in_profile(Register receiver,
-                                                        Register mdp, Register reg2,
-                                                        bool is_virtual_call) {
+void InterpreterMacroAssembler::record_klass_in_profile(Register receiver, Register mdp, Register reg2) {
   assert(ProfileInterpreter, "must be profiling");
   Label done;
 
-  record_klass_in_profile_helper(receiver, mdp, reg2, 0, done, is_virtual_call);
+  record_klass_in_profile_helper(receiver, mdp, reg2, 0, done);
 
   bind (done);
 }
@@ -1894,9 +1773,7 @@ void InterpreterMacroAssembler::profile_typecheck(Register mdp, Register klass, 
       mdp_delta = in_bytes(VirtualCallData::virtual_call_data_size());
 
       // Record the object type.
-      record_klass_in_profile(klass, mdp, reg2, false);
-      NOT_LP64(assert(reg2 == rdi, "we know how to fix this blown reg");)
-      NOT_LP64(restore_locals();)         // Restore EDI
+      record_klass_in_profile(klass, mdp, reg2);
     }
     update_mdp_by_constant(mdp, mdp_delta);
 
@@ -1956,6 +1833,120 @@ void InterpreterMacroAssembler::profile_switch_case(Register index,
   }
 }
 
+template <class ArrayData> void InterpreterMacroAssembler::profile_array_type(Register mdp,
+                                                                              Register array,
+                                                                              Register tmp) {
+  if (ProfileInterpreter) {
+    Label profile_continue;
+
+    // If no method data exists, go to profile_continue.
+    test_method_data_pointer(mdp, profile_continue);
+
+    mov(tmp, array);
+    profile_obj_type(tmp, Address(mdp, in_bytes(ArrayData::array_offset())));
+
+    Label not_flat;
+    test_non_flat_array_oop(array, tmp, not_flat);
+
+    set_mdp_flag_at(mdp, ArrayData::flat_array_byte_constant());
+
+    bind(not_flat);
+
+    Label not_null_free;
+    test_non_null_free_array_oop(array, tmp, not_null_free);
+
+    set_mdp_flag_at(mdp, ArrayData::null_free_array_byte_constant());
+
+    bind(not_null_free);
+
+    bind(profile_continue);
+  }
+}
+
+template void InterpreterMacroAssembler::profile_array_type<ArrayLoadData>(Register mdp,
+                                                                           Register array,
+                                                                           Register tmp);
+template void InterpreterMacroAssembler::profile_array_type<ArrayStoreData>(Register mdp,
+                                                                            Register array,
+                                                                            Register tmp);
+
+
+void InterpreterMacroAssembler::profile_multiple_element_types(Register mdp, Register element, Register tmp, const Register tmp2) {
+  if (ProfileInterpreter) {
+    Label profile_continue;
+
+    // If no method data exists, go to profile_continue.
+    test_method_data_pointer(mdp, profile_continue);
+
+    Label done, update;
+    testptr(element, element);
+    jccb(Assembler::notZero, update);
+    set_mdp_flag_at(mdp, BitData::null_seen_byte_constant());
+    jmp(done);
+
+    bind(update);
+    load_klass(tmp, element, rscratch1);
+
+    // Record the object type.
+    record_klass_in_profile(tmp, mdp, tmp2);
+
+    bind(done);
+
+    // The method data pointer needs to be updated.
+    update_mdp_by_constant(mdp, in_bytes(ArrayStoreData::array_store_data_size()));
+
+    bind(profile_continue);
+  }
+}
+
+void InterpreterMacroAssembler::profile_element_type(Register mdp,
+                                                     Register element,
+                                                     Register tmp) {
+  if (ProfileInterpreter) {
+    Label profile_continue;
+
+    // If no method data exists, go to profile_continue.
+    test_method_data_pointer(mdp, profile_continue);
+
+    mov(tmp, element);
+    profile_obj_type(tmp, Address(mdp, in_bytes(ArrayLoadData::element_offset())));
+
+    // The method data pointer needs to be updated.
+    update_mdp_by_constant(mdp, in_bytes(ArrayLoadData::array_load_data_size()));
+
+    bind(profile_continue);
+  }
+}
+
+void InterpreterMacroAssembler::profile_acmp(Register mdp,
+                                             Register left,
+                                             Register right,
+                                             Register tmp) {
+  if (ProfileInterpreter) {
+    Label profile_continue;
+
+    // If no method data exists, go to profile_continue.
+    test_method_data_pointer(mdp, profile_continue);
+
+    mov(tmp, left);
+    profile_obj_type(tmp, Address(mdp, in_bytes(ACmpData::left_offset())));
+
+    Label left_not_inline_type;
+    test_oop_is_not_inline_type(left, tmp, left_not_inline_type);
+    set_mdp_flag_at(mdp, ACmpData::left_inline_type_byte_constant());
+    bind(left_not_inline_type);
+
+    mov(tmp, right);
+    profile_obj_type(tmp, Address(mdp, in_bytes(ACmpData::right_offset())));
+
+    Label right_not_inline_type;
+    test_oop_is_not_inline_type(right, tmp, right_not_inline_type);
+    set_mdp_flag_at(mdp, ACmpData::right_inline_type_byte_constant());
+    bind(right_not_inline_type);
+
+    bind(profile_continue);
+  }
+}
 
 
 void InterpreterMacroAssembler::_interp_verify_oop(Register reg, TosState state, const char* file, int line) {
@@ -1964,14 +1955,6 @@ void InterpreterMacroAssembler::_interp_verify_oop(Register reg, TosState state,
   }
 }
 
-void InterpreterMacroAssembler::verify_FPU(int stack_depth, TosState state) {
-#ifndef _LP64
-  if ((state == ftos && UseSSE < 1) ||
-      (state == dtos && UseSSE < 2)) {
-    MacroAssembler::verify_FPU(stack_depth);
-  }
-#endif
-}
 
 // Jump if ((*counter_addr += increment) & mask) == 0
 void InterpreterMacroAssembler::increment_mask_and_jump(Address counter_addr, Address mask,
@@ -1992,11 +1975,10 @@ void InterpreterMacroAssembler::notify_method_entry() {
   // Whenever JVMTI is interp_only_mode, method entry/exit events are sent to
   // track stack depth.  If it is possible to enter interp_only_mode we add
   // the code to check if the event should be sent.
-  Register rthread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
-  Register rarg = LP64_ONLY(c_rarg1) NOT_LP64(rbx);
+  Register rthread = r15_thread;
+  Register rarg = c_rarg1;
   if (JvmtiExport::can_post_interpreter_events()) {
     Label L;
-    NOT_LP64(get_thread(rthread);)
     movl(rdx, Address(rthread, JavaThread::interp_only_mode_offset()));
     testl(rdx, rdx);
     jcc(Assembler::zero, L);
@@ -2006,7 +1988,6 @@ void InterpreterMacroAssembler::notify_method_entry() {
   }
 
   if (DTraceMethodProbes) {
-    NOT_LP64(get_thread(rthread);)
     get_method(rarg);
     call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_entry),
                  rthread, rarg);
@@ -2014,7 +1995,6 @@ void InterpreterMacroAssembler::notify_method_entry() {
 
   // RedefineClasses() tracing support for obsolete method entry
   if (log_is_enabled(Trace, redefine, class, obsolete)) {
-    NOT_LP64(get_thread(rthread);)
     get_method(rarg);
     call_VM_leaf(
       CAST_FROM_FN_PTR(address, SharedRuntime::rc_trace_method_entry),
@@ -2028,8 +2008,8 @@ void InterpreterMacroAssembler::notify_method_exit(
   // Whenever JVMTI is interp_only_mode, method entry/exit events are sent to
   // track stack depth.  If it is possible to enter interp_only_mode we add
   // the code to check if the event should be sent.
-  Register rthread = LP64_ONLY(r15_thread) NOT_LP64(rcx);
-  Register rarg = LP64_ONLY(c_rarg1) NOT_LP64(rbx);
+  Register rthread = r15_thread;
+  Register rarg = c_rarg1;
   if (mode == NotifyJVMTI && JvmtiExport::can_post_interpreter_events()) {
     Label L;
     // Note: frame::interpreter_frame_result has a dependency on how the
@@ -2039,7 +2019,6 @@ void InterpreterMacroAssembler::notify_method_exit(
 
     // template interpreter will leave the result on the top of the stack.
     push(state);
-    NOT_LP64(get_thread(rthread);)
     movl(rdx, Address(rthread, JavaThread::interp_only_mode_offset()));
     testl(rdx, rdx);
     jcc(Assembler::zero, L);
@@ -2051,7 +2030,6 @@ void InterpreterMacroAssembler::notify_method_exit(
 
   if (DTraceMethodProbes) {
     push(state);
-    NOT_LP64(get_thread(rthread);)
     get_method(rarg);
     call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_exit),
                  rthread, rarg);

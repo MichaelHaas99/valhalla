@@ -26,6 +26,7 @@
 #include "cds/archiveUtils.hpp"
 #include "cds/classListParser.hpp"
 #include "cds/lambdaFormInvokers.hpp"
+#include "cds/lambdaProxyClassDictionary.hpp"
 #include "cds/metaspaceShared.hpp"
 #include "cds/unregisteredClasses.hpp"
 #include "classfile/classLoaderExt.hpp"
@@ -544,11 +545,15 @@ InstanceKlass* ClassListParser::load_class_from_source(Symbol* class_name, TRAPS
           specified_super->external_name(), _super,
           k->java_super()->external_name());
   }
-  if (k->local_interfaces()->length() != _interfaces->length()) {
+  const int actual_num_interfaces = k->local_interfaces()->length();
+  const int specified_num_interfaces = _interfaces->length(); // specified in classlist
+  int expected_num_interfaces = actual_num_interfaces;
+
+  if (specified_num_interfaces != expected_num_interfaces) {
     print_specified_interfaces();
     print_actual_interfaces(k);
     error("The number of interfaces (%d) specified in class list does not match the class file (%d)",
-          _interfaces->length(), k->local_interfaces()->length());
+          specified_num_interfaces, expected_num_interfaces);
   }
 
   assert(k->is_shared_unregistered_class(), "must be");
@@ -657,7 +662,7 @@ void ClassListParser::resolve_indy_impl(Symbol* class_name_symbol, TRAPS) {
       constantPoolHandle pool(THREAD, cp);
       BootstrapInfo bootstrap_specifier(pool, pool_index, indy_index);
       Handle bsm = bootstrap_specifier.resolve_bsm(CHECK);
-      if (!SystemDictionaryShared::is_supported_invokedynamic(&bootstrap_specifier)) {
+      if (!LambdaProxyClassDictionary::is_supported_invokedynamic(&bootstrap_specifier)) {
         log_debug(cds, lambda)("is_supported_invokedynamic check failed for cp_index %d", pool_index);
         continue;
       }

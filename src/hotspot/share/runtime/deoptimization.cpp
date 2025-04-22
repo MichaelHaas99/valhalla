@@ -50,11 +50,14 @@
 #include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
 #include "oops/constantPool.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.hpp"
 #include "oops/fieldStreams.inline.hpp"
 #include "oops/method.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/objArrayOop.inline.hpp"
 #include "oops/oop.inline.hpp"
+#include "oops/inlineKlass.inline.hpp"
 #include "oops/typeArrayOop.inline.hpp"
 #include "oops/verifyOopClosure.hpp"
 #include "prims/jvmtiDeferredUpdates.hpp"
@@ -350,42 +353,68 @@ static bool rematerialize_objects(JavaThread* thread, int exec_mode, nmethod* co
   // is set during method compilation (see Compile::Process_OopMap_Node()).
   // If the previous frame was popped or if we are dispatching an exception,
   // we don't have an oop result.
-  bool save_oop_result = chunk->at(0)->scope()->return_oop() && !thread->popframe_forcing_deopt_reexecution() && (exec_mode == Deoptimization::Unpack_deopt);
-  Handle return_value;
+  ScopeDesc* scope = chunk->at(0)->scope();
+  bool save_oop_result = scope->return_oop() && !thread->popframe_forcing_deopt_reexecution() && (exec_mode == Deoptimization::Unpack_deopt);
+  // In case of the return of multiple values, we must take care
+  // of all oop return values.
+  GrowableArray<Handle> return_oops;
+  InlineKlass* vk = nullptr;
+  if (save_oop_result && scope->return_scalarized()) {
+    vk = InlineKlass::returned_inline_klass(map);
+    if (vk != nullptr) {
+      vk->save_oop_fields(map, return_oops);
+      save_oop_result = false;
+    }
+  }
   if (save_oop_result) {
     // Reallocation may trigger GC. If deoptimization happened on return from
     // call which returns oop we need to save it since it is not in oopmap.
     oop result = deoptee.saved_oop_result(&map);
     assert(oopDesc::is_oop_or_null(result), "must be oop");
-    return_value = Handle(thread, result);
+    return_oops.push(Handle(thread, result));
     assert(Universe::heap()->is_in_or_null(result), "must be heap pointer");
     if (TraceDeoptimization) {
       tty->print_cr("SAVED OOP RESULT " INTPTR_FORMAT " in thread " INTPTR_FORMAT, p2i(result), p2i(thread));
       tty->cr();
     }
   }
-  if (objects != nullptr) {
+  if (objects != nullptr || vk != nullptr) {
     if (exec_mode == Deoptimization::Unpack_none) {
       assert(thread->thread_state() == _thread_in_vm, "assumption");
       JavaThread* THREAD = thread; // For exception macros.
       // Clear pending OOM if reallocation fails and return true indicating allocation failure
-      realloc_failures = Deoptimization::realloc_objects(thread, &deoptee, &map, objects, CHECK_AND_CLEAR_(true));
+      if (vk != nullptr) {
+        realloc_failures = Deoptimization::realloc_inline_type_result(vk, map, return_oops, CHECK_AND_CLEAR_(true));
+      }
+      if (objects != nullptr) {
+        realloc_failures = realloc_failures || Deoptimization::realloc_objects(thread, &deoptee, &map, objects, CHECK_AND_CLEAR_(true));
+        guarantee(compiled_method != nullptr, "deopt must be associated with an nmethod");
+        bool is_jvmci = compiled_method->is_compiled_by_jvmci();
+        Deoptimization::reassign_fields(&deoptee, &map, objects, realloc_failures, is_jvmci, CHECK_AND_CLEAR_(true));
+      }
       deoptimized_objects = true;
     } else {
       JavaThread* current = thread; // For JRT_BLOCK
       JRT_BLOCK
-      realloc_failures = Deoptimization::realloc_objects(thread, &deoptee, &map, objects, THREAD);
+      if (vk != nullptr) {
+        realloc_failures = Deoptimization::realloc_inline_type_result(vk, map, return_oops, THREAD);
+      }
+      if (objects != nullptr) {
+        realloc_failures = realloc_failures || Deoptimization::realloc_objects(thread, &deoptee, &map, objects, THREAD);
+        guarantee(compiled_method != nullptr, "deopt must be associated with an nmethod");
+        bool is_jvmci = compiled_method->is_compiled_by_jvmci();
+        Deoptimization::reassign_fields(&deoptee, &map, objects, realloc_failures, is_jvmci, THREAD);
+      }
       JRT_END
     }
-    bool skip_internal = (compiled_method != nullptr) && !compiled_method->is_compiled_by_jvmci();
-    Deoptimization::reassign_fields(&deoptee, &map, objects, realloc_failures, skip_internal);
-    if (TraceDeoptimization) {
+    if (TraceDeoptimization && objects != nullptr) {
       print_objects(deoptee_thread, objects, realloc_failures);
     }
   }
-  if (save_oop_result) {
+  if (save_oop_result || vk != nullptr) {
     // Restore result.
-    deoptee.set_saved_oop_result(&map, return_value());
+    assert(return_oops.length() == 1, "no inline type");
+    deoptee.set_saved_oop_result(&map, return_oops.pop()());
   }
   return realloc_failures;
 }
@@ -719,7 +748,7 @@ Deoptimization::UnrollBlock* Deoptimization::fetch_unroll_info_helper(JavaThread
     caller_adjustment = last_frame_adjust(callee_parameters, callee_locals);
   }
 
-  // If the sender is deoptimized the we must retrieve the address of the handler
+  // If the sender is deoptimized we must retrieve the address of the handler
   // since the frame will "magically" show the original pc before the deopt
   // and we'd undo the deopt.
 
@@ -1224,10 +1253,19 @@ bool Deoptimization::realloc_objects(JavaThread* thread, frame* fr, RegisterMap*
   for (int i = 0; i < objects->length(); i++) {
     assert(objects->at(i)->is_object(), "invalid debug information");
     ObjectValue* sv = (ObjectValue*) objects->at(i);
-
     Klass* k = java_lang_Class::as_Klass(sv->klass()->as_ConstantOopReadValue()->value()());
-    oop obj = nullptr;
 
+    // Check if the object may be null and has an additional is_init input that needs
+    // to be checked before using the field values. Skip re-allocation if it is null.
+    if (sv->maybe_null()) {
+      assert(k->is_inline_klass(), "must be an inline klass");
+      jint is_init = StackValue::create_stack_value(fr, reg_map, sv->is_init())->get_jint();
+      if (is_init == 0) {
+        continue;
+      }
+    }
+
+    oop obj = nullptr;
     bool cache_init_error = false;
     if (k->is_instance_klass()) {
 #if INCLUDE_JVMCI
@@ -1255,6 +1293,10 @@ bool Deoptimization::realloc_objects(JavaThread* thread, frame* fr, RegisterMap*
           obj = ik->allocate_instance(THREAD);
         }
       }
+    } else if (k->is_flatArray_klass()) {
+      FlatArrayKlass* ak = FlatArrayKlass::cast(k);
+      // Inline type array must be zeroed because not all memory is reassigned
+      obj = ak->allocate(sv->field_size(), ak->layout_kind(), THREAD);
     } else if (k->is_typeArray_klass()) {
       TypeArrayKlass* ak = TypeArrayKlass::cast(k);
       assert(sv->field_size() % type2size[ak->element_type()] == 0, "non-integral array length");
@@ -1284,6 +1326,21 @@ bool Deoptimization::realloc_objects(JavaThread* thread, frame* fr, RegisterMap*
   }
 
   return failures;
+}
+
+// We're deoptimizing at the return of a call, inline type fields are
+// in registers. When we go back to the interpreter, it will expect a
+// reference to an inline type instance. Allocate and initialize it from
+// the register values here.
+bool Deoptimization::realloc_inline_type_result(InlineKlass* vk, const RegisterMap& map, GrowableArray<Handle>& return_oops, TRAPS) {
+  oop new_vt = vk->realloc_result(map, return_oops, THREAD);
+  if (new_vt == nullptr) {
+    CLEAR_PENDING_EXCEPTION;
+    THROW_OOP_(Universe::out_of_memory_error_realloc_objects(), true);
+  }
+  return_oops.clear();
+  return_oops.push(Handle(THREAD, new_vt));
+  return false;
 }
 
 #if INCLUDE_JVMCI
@@ -1451,41 +1508,74 @@ class ReassignedField {
 public:
   int _offset;
   BasicType _type;
+  InstanceKlass* _klass;
+  bool _is_flat;
+  bool _is_null_free;
 public:
-  ReassignedField() {
-    _offset = 0;
-    _type = T_ILLEGAL;
-  }
+  ReassignedField() : _offset(0), _type(T_ILLEGAL), _klass(nullptr), _is_flat(false), _is_null_free(false) { }
 };
 
 static int compare(ReassignedField* left, ReassignedField* right) {
   return left->_offset - right->_offset;
 }
 
-// Restore fields of an eliminated instance object using the same field order
-// returned by HotSpotResolvedObjectTypeImpl.getInstanceFields(true)
-static int reassign_fields_by_klass(InstanceKlass* klass, frame* fr, RegisterMap* reg_map, ObjectValue* sv, int svIndex, oop obj, bool skip_internal) {
-  GrowableArray<ReassignedField>* fields = new GrowableArray<ReassignedField>();
-  InstanceKlass* ik = klass;
-  while (ik != nullptr) {
-    for (AllFieldStream fs(ik); !fs.done(); fs.next()) {
-      if (!fs.access_flags().is_static() && (!skip_internal || !fs.field_flags().is_injected())) {
-        ReassignedField field;
-        field._offset = fs.offset();
-        field._type = Signature::basic_type(fs.signature());
-        fields->append(field);
-      }
-    }
-    ik = ik->superklass();
+
+// Gets the fields of `klass` that are eliminated by escape analysis and need to be reassigned
+static GrowableArray<ReassignedField>* get_reassigned_fields(InstanceKlass* klass, GrowableArray<ReassignedField>* fields, bool is_jvmci) {
+  InstanceKlass* super = klass->superklass();
+  if (super != nullptr) {
+    get_reassigned_fields(super, fields, is_jvmci);
   }
+  for (AllFieldStream fs(klass); !fs.done(); fs.next()) {
+    if (!fs.access_flags().is_static() && (is_jvmci || !fs.field_flags().is_injected())) {
+      ReassignedField field;
+      field._offset = fs.offset();
+      field._type = Signature::basic_type(fs.signature());
+      if (fs.is_flat()) {
+        field._is_flat = true;
+        field._is_null_free = fs.is_null_free_inline_type();
+        // Resolve klass of flat inline type field
+        field._klass = InlineKlass::cast(klass->get_inline_type_field_klass(fs.index()));
+      }
+      fields->append(field);
+    }
+  }
+  return fields;
+}
+
+// Restore fields of an eliminated instance object employing the same field order used by the compiler.
+static int reassign_fields_by_klass(InstanceKlass* klass, frame* fr, RegisterMap* reg_map, ObjectValue* sv, int svIndex, oop obj, bool is_jvmci, int base_offset, GrowableArray<int>* null_marker_offsets, TRAPS) {
+  GrowableArray<ReassignedField>* fields = get_reassigned_fields(klass, new GrowableArray<ReassignedField>(), is_jvmci);
   fields->sort(compare);
+
+  // Keep track of null marker offset for flat fields
+  bool set_null_markers = false;
+  if (null_marker_offsets == nullptr) {
+    set_null_markers = true;
+    null_marker_offsets = new GrowableArray<int>();
+  }
+
   for (int i = 0; i < fields->length(); i++) {
+    BasicType type = fields->at(i)._type;
+    int offset = base_offset + fields->at(i)._offset;
+    // Check for flat inline type field before accessing the ScopeValue because it might not have any fields
+    if (fields->at(i)._is_flat) {
+      // Recursively re-assign flat inline type fields
+      InstanceKlass* vk = fields->at(i)._klass;
+      assert(vk != nullptr, "must be resolved");
+      offset -= InlineKlass::cast(vk)->payload_offset(); // Adjust offset to omit oop header
+      svIndex = reassign_fields_by_klass(vk, fr, reg_map, sv, svIndex, obj, is_jvmci, offset, null_marker_offsets, CHECK_0);
+      if (!fields->at(i)._is_null_free) {
+        int nm_offset = offset + InlineKlass::cast(vk)->null_marker_offset();
+        null_marker_offsets->append(nm_offset);
+      }
+      continue; // Continue because we don't need to increment svIndex
+    }
     ScopeValue* scope_field = sv->field_at(svIndex);
     StackValue* value = StackValue::create_stack_value(fr, reg_map, scope_field);
-    int offset = fields->at(i)._offset;
-    BasicType type = fields->at(i)._type;
     switch (type) {
-      case T_OBJECT: case T_ARRAY:
+      case T_OBJECT:
+      case T_ARRAY:
         assert(value->type() == T_OBJECT, "Agreement.");
         obj->obj_field_put(offset, value->get_obj()());
         break;
@@ -1556,17 +1646,40 @@ static int reassign_fields_by_klass(InstanceKlass* klass, frame* fr, RegisterMap
     }
     svIndex++;
   }
+  if (set_null_markers) {
+    // The null marker values come after all the field values in the debug info
+    assert(null_marker_offsets->length() == (sv->field_size() - svIndex), "Missing null marker(s) in debug info");
+    for (int i = 0; i < null_marker_offsets->length(); ++i) {
+      int offset = null_marker_offsets->at(i);
+      jbyte is_init = (jbyte)StackValue::create_stack_value(fr, reg_map, sv->field_at(svIndex++))->get_jint();
+      obj->byte_field_put(offset, is_init);
+    }
+  }
   return svIndex;
 }
 
+// restore fields of an eliminated inline type array
+void Deoptimization::reassign_flat_array_elements(frame* fr, RegisterMap* reg_map, ObjectValue* sv, flatArrayOop obj, FlatArrayKlass* vak, bool is_jvmci, TRAPS) {
+  InlineKlass* vk = vak->element_klass();
+  assert(vk->flat_array(), "should only be used for flat inline type arrays");
+  // Adjust offset to omit oop header
+  int base_offset = arrayOopDesc::base_offset_in_bytes(T_FLAT_ELEMENT) - InlineKlass::cast(vk)->payload_offset();
+  // Initialize all elements of the flat inline type array
+  for (int i = 0; i < sv->field_size(); i++) {
+    ScopeValue* val = sv->field_at(i);
+    int offset = base_offset + (i << Klass::layout_helper_log2_element_size(vak->layout_helper()));
+    reassign_fields_by_klass(vk, fr, reg_map, val->as_ObjectValue(), 0, (oop)obj, is_jvmci, offset, nullptr, CHECK);
+  }
+}
+
 // restore fields of all eliminated objects and arrays
-void Deoptimization::reassign_fields(frame* fr, RegisterMap* reg_map, GrowableArray<ScopeValue*>* objects, bool realloc_failures, bool skip_internal) {
+void Deoptimization::reassign_fields(frame* fr, RegisterMap* reg_map, GrowableArray<ScopeValue*>* objects, bool realloc_failures, bool is_jvmci, TRAPS) {
   for (int i = 0; i < objects->length(); i++) {
     assert(objects->at(i)->is_object(), "invalid debug information");
     ObjectValue* sv = (ObjectValue*) objects->at(i);
     Klass* k = java_lang_Class::as_Klass(sv->klass()->as_ConstantOopReadValue()->value()());
     Handle obj = sv->value();
-    assert(obj.not_null() || realloc_failures, "reallocation was missed");
+    assert(obj.not_null() || realloc_failures || sv->maybe_null(), "reallocation was missed");
 #ifndef PRODUCT
     if (PrintDeoptimizationDetails) {
       tty->print_cr("reassign fields for object of type %s!", k->name()->as_C_string());
@@ -1604,7 +1717,10 @@ void Deoptimization::reassign_fields(frame* fr, RegisterMap* reg_map, GrowableAr
     }
     if (k->is_instance_klass()) {
       InstanceKlass* ik = InstanceKlass::cast(k);
-      reassign_fields_by_klass(ik, fr, reg_map, sv, 0, obj(), skip_internal);
+      reassign_fields_by_klass(ik, fr, reg_map, sv, 0, obj(), is_jvmci, 0, nullptr, CHECK);
+    } else if (k->is_flatArray_klass()) {
+      FlatArrayKlass* vak = FlatArrayKlass::cast(k);
+      reassign_flat_array_elements(fr, reg_map, sv, (flatArrayOop) obj(), vak, is_jvmci, CHECK);
     } else if (k->is_typeArray_klass()) {
       TypeArrayKlass* ak = TypeArrayKlass::cast(k);
       reassign_type_array_elements(fr, reg_map, sv, (typeArrayOop) obj(), ak->element_type());
@@ -1794,7 +1910,7 @@ void Deoptimization::deoptimize_single_frame(JavaThread* thread, frame fr, Deopt
 }
 
 void Deoptimization::deoptimize(JavaThread* thread, frame fr, DeoptReason reason) {
-  // Deoptimize only if the frame comes from compile code.
+  // Deoptimize only if the frame comes from compiled code.
   // Do not deoptimize the frame which is already patched
   // during the execution of the loops below.
   if (!fr.is_compiled_frame() || fr.is_deoptimized_frame()) {
@@ -1807,7 +1923,7 @@ void Deoptimization::deoptimize(JavaThread* thread, frame fr, DeoptReason reason
 #if INCLUDE_JVMCI
 address Deoptimization::deoptimize_for_missing_exception_handler(nmethod* nm) {
   // there is no exception handler for this pc => deoptimize
-  nm->make_not_entrant();
+  nm->make_not_entrant("missing exception handler");
 
   // Use Deoptimization::deoptimize for all of its side-effects:
   // gathering traps statistics, logging...
@@ -2436,7 +2552,7 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* current, jint tr
 
     // Recompile
     if (make_not_entrant) {
-      if (!nm->make_not_entrant()) {
+      if (!nm->make_not_entrant("uncommon trap")) {
         return; // the call did not change nmethod's state
       }
 

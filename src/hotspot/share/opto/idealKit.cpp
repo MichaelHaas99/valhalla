@@ -47,7 +47,6 @@ IdealKit::IdealKit(GraphKit* gkit, bool delay_all_transforms, bool has_declarati
   _cvstate = nullptr;
   // We can go memory state free or else we need the entire memory state
   assert(_initial_memory == nullptr || _initial_memory->Opcode() == Op_MergeMem, "memory must be pre-split");
-  assert(!_gvn.is_IterGVN(), "IdealKit can't be used during Optimize phase");
   int init_size = 5;
   _pending_cvstates = new (C->node_arena()) GrowableArray<Node*>(C->node_arena(), init_size, 0, nullptr);
   DEBUG_ONLY(_state = new (C->node_arena()) GrowableArray<int>(C->node_arena(), init_size, 0, 0));
@@ -79,10 +78,13 @@ void IdealKit::if_then(Node* left, BoolTest::mask relop,
       assert(left->bottom_type()->isa_long() != nullptr, "what else?");
       bol = Bool(CmpL(left, right), relop);
     }
-
   } else {
     bol = Bool(CmpP(left, right), relop);
   }
+  if_then(bol, prob, cnt, push_new_state);
+}
+
+void IdealKit::if_then(Node* bol, float prob, float cnt, bool push_new_state) {
   // Delay gvn.transform on if-nodes until construction is finished
   // to prevent a constant bool input from discarding a control output.
   IfNode* iff = delay_transform(new IfNode(ctrl(), bol, prob, cnt))->as_If();
@@ -163,14 +165,12 @@ void IdealKit::end_if() {
 // onto the stack.
 void IdealKit::loop(GraphKit* gkit, int nargs, IdealVariable& iv, Node* init, BoolTest::mask relop, Node* limit, float prob, float cnt) {
   assert((state() & (BlockS|LoopS|IfThenS|ElseS)), "bad state for new loop");
-  if (UseLoopPredicate) {
-    // Sync IdealKit and graphKit.
-    gkit->sync_kit(*this);
-    // Add Parse Predicates.
-    gkit->add_parse_predicates(nargs);
-    // Update IdealKit memory.
-    sync_kit(gkit);
-  }
+  // Sync IdealKit and graphKit.
+  gkit->sync_kit(*this);
+  // Add Parse Predicates.
+  gkit->add_parse_predicates(nargs);
+  // Update IdealKit memory.
+  sync_kit(gkit);
   set(iv, init);
   Node* head = make_label(1);
   bind(head);
@@ -295,7 +295,7 @@ Node* IdealKit::transform(Node* n) {
     return delay_transform(n);
   } else {
     n = gvn().transform(n);
-    C->record_for_igvn(n);
+    gvn().record_for_igvn(n);
     return n;
   }
 }
@@ -304,7 +304,7 @@ Node* IdealKit::transform(Node* n) {
 Node* IdealKit::delay_transform(Node* n) {
   // Delay transform until IterativeGVN
   gvn().set_type(n, n->bottom_type());
-  C->record_for_igvn(n);
+  gvn().record_for_igvn(n);
   return n;
 }
 
@@ -504,8 +504,8 @@ Node* IdealKit::make_leaf_call(const TypeFunc *slow_call_type,
   assert(C->alias_type(call->adr_type()) == C->alias_type(adr_type),
          "call node must be constructed correctly");
   Node* res = nullptr;
-  if (slow_call_type->range()->cnt() > TypeFunc::Parms) {
-    assert(slow_call_type->range()->cnt() == TypeFunc::Parms+1, "only one return value");
+  if (slow_call_type->range_sig()->cnt() > TypeFunc::Parms) {
+    assert(slow_call_type->range_sig()->cnt() == TypeFunc::Parms+1, "only one return value");
     res = transform(new ProjNode(call, TypeFunc::Parms));
   }
   return res;

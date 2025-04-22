@@ -22,13 +22,15 @@
  *
  */
 
-#include "c1/c1_CFGPrinter.hpp"
 #include "c1/c1_Canonicalizer.hpp"
+#include "c1/c1_CFGPrinter.hpp"
 #include "c1/c1_Compilation.hpp"
 #include "c1/c1_GraphBuilder.hpp"
 #include "c1/c1_InstructionPrinter.hpp"
 #include "ci/ciCallSite.hpp"
 #include "ci/ciField.hpp"
+#include "ci/ciFlatArrayKlass.hpp"
+#include "ci/ciInlineKlass.hpp"
 #include "ci/ciKlass.hpp"
 #include "ci/ciMemberName.hpp"
 #include "ci/ciSymbols.hpp"
@@ -673,17 +675,6 @@ class MemoryBuffer: public CompilationResourceObj {
       return load;
     }
 
-    if (strict_fp_requires_explicit_rounding && load->type()->is_float_kind()) {
-#ifdef IA32
-      if (UseSSE < 2) {
-        // can't skip load since value might get rounded as a side effect
-        return load;
-      }
-#else
-      Unimplemented();
-#endif // IA32
-    }
-
     ciField* field = load->field();
     Value object   = load->obj();
     if (field->holder()->is_loaded() && !field->is_volatile()) {
@@ -1052,13 +1043,21 @@ void GraphBuilder::store_local(ValueStack* state, Value x, int index) {
     }
   }
 
-  state->store_local(index, round_fp(x));
+  state->store_local(index, x);
 }
 
 
 void GraphBuilder::load_indexed(BasicType type) {
   // In case of in block code motion in range check elimination
-  ValueStack* state_before = copy_state_indexed_access();
+  ValueStack* state_before = nullptr;
+  int array_idx = state()->stack_size() - 2;
+  if (type == T_OBJECT && state()->stack_at(array_idx)->maybe_flat_array()) {
+    // Save the entire state and re-execute on deopt when accessing flat arrays
+    state_before = copy_state_before();
+    state_before->set_should_reexecute(true);
+  } else {
+    state_before = copy_state_indexed_access();
+  }
   compilation()->set_has_access_indexed(true);
   Value index = ipop();
   Value array = apop();
@@ -1070,13 +1069,76 @@ void GraphBuilder::load_indexed(BasicType type) {
       (array->as_NewMultiArray() && array->as_NewMultiArray()->dims()->at(0)->type()->is_constant())) {
     length = append(new ArrayLength(array, state_before));
   }
-  push(as_ValueType(type), append(new LoadIndexed(array, index, length, type, state_before)));
+
+  bool need_membar = false;
+  LoadIndexed* load_indexed = nullptr;
+  Instruction* result = nullptr;
+  if (array->is_loaded_flat_array()) {
+    // TODO 8350865 This is currently dead code
+    ciType* array_type = array->declared_type();
+    ciInlineKlass* elem_klass = array_type->as_flat_array_klass()->element_klass()->as_inline_klass();
+
+    bool can_delay_access = false;
+    ciBytecodeStream s(method());
+    s.force_bci(bci());
+    s.next();
+    if (s.cur_bc() == Bytecodes::_getfield) {
+      bool will_link;
+      ciField* next_field = s.get_field(will_link);
+      bool next_needs_patching = !next_field->holder()->is_initialized() ||
+                                 !next_field->will_link(method(), Bytecodes::_getfield) ||
+                                 PatchALot;
+      can_delay_access = C1UseDelayedFlattenedFieldReads && !next_needs_patching;
+    }
+    if (can_delay_access) {
+      // potentially optimizable array access, storing information for delayed decision
+      LoadIndexed* li = new LoadIndexed(array, index, length, type, state_before);
+      DelayedLoadIndexed* dli = new DelayedLoadIndexed(li, state_before);
+      li->set_delayed(dli);
+      set_pending_load_indexed(dli);
+      return; // Nothing else to do for now
+    } else {
+      NewInstance* new_instance = new NewInstance(elem_klass, state_before, false, true);
+      _memory->new_instance(new_instance);
+      apush(append_split(new_instance));
+      load_indexed = new LoadIndexed(array, index, length, type, state_before);
+      load_indexed->set_vt(new_instance);
+      // The LoadIndexed node will initialise this instance by copying from
+      // the flat field.  Ensure these stores are visible before any
+      // subsequent store that publishes this reference.
+      need_membar = true;
+    }
+  } else {
+    load_indexed = new LoadIndexed(array, index, length, type, state_before);
+    if (profile_array_accesses() && is_reference_type(type)) {
+      compilation()->set_would_profile(true);
+      load_indexed->set_should_profile(true);
+      load_indexed->set_profiled_method(method());
+      load_indexed->set_profiled_bci(bci());
+    }
+  }
+  result = append(load_indexed);
+  if (need_membar) {
+    append(new MemBar(lir_membar_storestore));
+  }
+  assert(!load_indexed->should_profile() || load_indexed == result, "should not be optimized out");
+  if (!array->is_loaded_flat_array()) {
+    push(as_ValueType(type), result);
+  }
 }
 
 
 void GraphBuilder::store_indexed(BasicType type) {
   // In case of in block code motion in range check elimination
-  ValueStack* state_before = copy_state_indexed_access();
+  ValueStack* state_before = nullptr;
+  int array_idx = state()->stack_size() - 3;
+  if (type == T_OBJECT && state()->stack_at(array_idx)->maybe_flat_array()) {
+    // Save the entire state and re-execute on deopt when accessing flat arrays
+    state_before = copy_state_before();
+    state_before->set_should_reexecute(true);
+  } else {
+    state_before = copy_state_indexed_access();
+  }
   compilation()->set_has_access_indexed(true);
   Value value = pop(as_ValueType(type));
   Value index = ipop();
@@ -1101,32 +1163,28 @@ void GraphBuilder::store_indexed(BasicType type) {
   } else if (type == T_BYTE) {
     check_boolean = true;
   }
-  StoreIndexed* result = new StoreIndexed(array, index, length, type, value, state_before, check_boolean);
-  append(result);
-  _memory->store_value(value);
 
-  if (type == T_OBJECT && is_profiling()) {
-    // Note that we'd collect profile data in this method if we wanted it.
+  StoreIndexed* store_indexed = new StoreIndexed(array, index, length, type, value, state_before, check_boolean);
+  if (profile_array_accesses() && is_reference_type(type) && !array->is_loaded_flat_array()) {
     compilation()->set_would_profile(true);
-
-    if (profile_checkcasts()) {
-      result->set_profiled_method(method());
-      result->set_profiled_bci(bci());
-      result->set_should_profile(true);
-    }
+    store_indexed->set_should_profile(true);
+    store_indexed->set_profiled_method(method());
+    store_indexed->set_profiled_bci(bci());
   }
+  Instruction* result = append(store_indexed);
+  assert(!store_indexed->should_profile() || store_indexed == result, "should not be optimized out");
+  _memory->store_value(value);
 }
-
 
 void GraphBuilder::stack_op(Bytecodes::Code code) {
   switch (code) {
     case Bytecodes::_pop:
-      { state()->raw_pop();
+      { Value w = state()->raw_pop();
       }
       break;
     case Bytecodes::_pop2:
-      { state()->raw_pop();
-        state()->raw_pop();
+      { Value w1 = state()->raw_pop();
+        Value w2 = state()->raw_pop();
       }
       break;
     case Bytecodes::_dup:
@@ -1204,10 +1262,7 @@ void GraphBuilder::arithmetic_op(ValueType* type, Bytecodes::Code code, ValueSta
   Value y = pop(type);
   Value x = pop(type);
   Value res = new ArithmeticOp(code, x, y, state_before);
-  // Note: currently single-precision floating-point rounding on Intel is handled at the LIRGenerator level
-  res = append(res);
-  res = round_fp(res);
-  push(type, res);
+  push(type, append(res));
 }
 
 
@@ -1305,9 +1360,36 @@ void GraphBuilder::if_node(Value x, If::Condition cond, Value y, ValueStack* sta
   BlockBegin* tsux = block_at(stream()->get_dest());
   BlockBegin* fsux = block_at(stream()->next_bci());
   bool is_bb = tsux->bci() < stream()->cur_bci() || fsux->bci() < stream()->cur_bci();
+
+  bool subst_check = false;
+  if (EnableValhalla && (stream()->cur_bc() == Bytecodes::_if_acmpeq || stream()->cur_bc() == Bytecodes::_if_acmpne)) {
+    ValueType* left_vt = x->type();
+    ValueType* right_vt = y->type();
+    if (left_vt->is_object()) {
+      assert(right_vt->is_object(), "must be");
+      ciKlass* left_klass = x->as_loaded_klass_or_null();
+      ciKlass* right_klass = y->as_loaded_klass_or_null();
+
+      if (left_klass == nullptr || right_klass == nullptr) {
+        // The klass is still unloaded, or came from a Phi node. Go slow case;
+        subst_check = true;
+      } else if (left_klass->can_be_inline_klass() || right_klass->can_be_inline_klass()) {
+        // Either operand may be a value object, but we're not sure. Go slow case;
+        subst_check = true;
+      } else {
+        // No need to do substitutability check
+      }
+    }
+  }
+  if ((stream()->cur_bc() == Bytecodes::_if_acmpeq || stream()->cur_bc() == Bytecodes::_if_acmpne) &&
+      is_profiling() && profile_branches()) {
+    compilation()->set_would_profile(true);
+    append(new ProfileACmpTypes(method(), bci(), x, y));
+  }
+
   // In case of loop invariant code motion or predicate insertion
   // before the body of a loop the state is needed
-  Instruction *i = append(new If(x, cond, false, y, tsux, fsux, (is_bb || compilation()->is_optimistic()) ? state_before : nullptr, is_bb));
+  Instruction *i = append(new If(x, cond, false, y, tsux, fsux, (is_bb || compilation()->is_optimistic() || subst_check) ? state_before : nullptr, is_bb, subst_check));
 
   assert(i->as_Goto() == nullptr ||
          (i->as_Goto()->sux_at(0) == tsux  && i->as_Goto()->is_safepoint() == (tsux->bci() < stream()->cur_bci())) ||
@@ -1562,7 +1644,7 @@ void GraphBuilder::method_return(Value x, bool ignore_return) {
 
   // The conditions for a memory barrier are described in Parse::do_exits().
   bool need_mem_bar = false;
-  if (method()->name() == ciSymbols::object_initializer_name() &&
+  if (method()->is_object_constructor() &&
        (scope()->wrote_final() || scope()->wrote_stable() ||
          (AlwaysSafeConstructors && scope()->wrote_fields()) ||
          (support_IRIW_for_not_multiple_copy_atomic_cpu && scope()->wrote_volatile()))) {
@@ -1713,16 +1795,42 @@ Value GraphBuilder::make_constant(ciConstant field_value, ciField* field) {
   }
 }
 
+void GraphBuilder::copy_inline_content(ciInlineKlass* vk, Value src, int src_off, Value dest, int dest_off, ValueStack* state_before, ciField* enclosing_field) {
+  for (int i = 0; i < vk->nof_declared_nonstatic_fields(); i++) {
+    ciField* field = vk->declared_nonstatic_field_at(i);
+    int offset = field->offset_in_bytes() - vk->payload_offset();
+    if (field->is_flat()) {
+      bool needs_atomic_access = !field->is_null_free() || field->is_volatile();
+      assert(!needs_atomic_access, "Atomic access in non-atomic container");
+      copy_inline_content(field->type()->as_inline_klass(), src, src_off + offset, dest, dest_off + offset, state_before, enclosing_field);
+      if (!field->is_null_free()) {
+        // Nullable, copy the null marker using Unsafe because null markers are no real fields
+        int null_marker_offset = field->null_marker_offset() - vk->payload_offset();
+        Value offset = append(new Constant(new LongConstant(src_off + null_marker_offset)));
+        Value nm = append(new UnsafeGet(T_BOOLEAN, src, offset, false));
+        offset = append(new Constant(new LongConstant(dest_off + null_marker_offset)));
+        append(new UnsafePut(T_BOOLEAN, dest, offset, nm, false));
+      }
+    } else {
+      Value value = append(new LoadField(src, src_off + offset, field, false, state_before, false));
+      StoreField* store = new StoreField(dest, dest_off + offset, field, value, false, state_before, false);
+      store->set_enclosing_field(enclosing_field);
+      append(store);
+    }
+  }
+}
+
 void GraphBuilder::access_field(Bytecodes::Code code) {
   bool will_link;
   ciField* field = stream()->get_field(will_link);
   ciInstanceKlass* holder = field->holder();
   BasicType field_type = field->type()->basic_type();
   ValueType* type = as_ValueType(field_type);
+
   // call will_link again to determine if the field is valid.
   const bool needs_patching = !holder->is_loaded() ||
                               !field->will_link(method(), code) ||
-                              PatchALot;
+                              (!field->is_flat() && PatchALot);
 
   ValueStack* state_before = nullptr;
   if (!holder->is_initialized() || needs_patching) {
@@ -1754,7 +1862,7 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
     }
   }
 
-  const int offset = !needs_patching ? field->offset_in_bytes() : -1;
+  int offset = !needs_patching ? field->offset_in_bytes() : -1;
   switch (code) {
     case Bytecodes::_getstatic: {
       // check for compile-time constants, i.e., initialized static final fields
@@ -1771,8 +1879,9 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
         if (state_before == nullptr) {
           state_before = copy_state_for_exception();
         }
-        push(type, append(new LoadField(append(obj), offset, field, true,
-                                        state_before, needs_patching)));
+        LoadField* load_field = new LoadField(append(obj), offset, field, true,
+                                        state_before, needs_patching);
+        push(type, append(load_field));
       }
       break;
     }
@@ -1781,9 +1890,16 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
       if (state_before == nullptr) {
         state_before = copy_state_for_exception();
       }
-      if (field->type()->basic_type() == T_BOOLEAN) {
+      if (field_type == T_BOOLEAN) {
         Value mask = append(new Constant(new IntConstant(1)));
         val = append(new LogicOp(Bytecodes::_iand, val, mask));
+      }
+      if (field->is_null_free()) {
+        null_check(val);
+      }
+      if (field->is_null_free() && field->type()->is_loaded() && field->type()->as_inline_klass()->is_empty() && (!method()->is_class_initializer() || field->is_flat())) {
+        // Storing to a field of an empty, null-free inline type that is already initialized. Ignore.
+        break;
       }
       append(new StoreField(append(obj), offset, field, val, true, state_before, needs_patching));
       break;
@@ -1791,20 +1907,27 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
     case Bytecodes::_getfield: {
       // Check for compile-time constants, i.e., trusted final non-static fields.
       Value constant = nullptr;
-      obj = apop();
-      ObjectType* obj_type = obj->type()->as_ObjectType();
-      if (field->is_constant() && obj_type->is_constant() && !PatchALot) {
-        ciObject* const_oop = obj_type->constant_value();
-        if (!const_oop->is_null_object() && const_oop->is_loaded()) {
-          ciConstant field_value = field->constant_value_of(const_oop);
-          if (field_value.is_valid()) {
-            constant = make_constant(field_value, field);
-            // For CallSite objects add a dependency for invalidation of the optimization.
-            if (field->is_call_site_target()) {
-              ciCallSite* call_site = const_oop->as_call_site();
-              if (!call_site->is_fully_initialized_constant_call_site()) {
-                ciMethodHandle* target = field_value.as_object()->as_method_handle();
-                dependency_recorder()->assert_call_site_target_value(call_site, target);
+      if (state_before == nullptr && field->is_flat()) {
+        // Save the entire state and re-execute on deopt when accessing flat fields
+        assert(Interpreter::bytecode_should_reexecute(code), "should reexecute");
+        state_before = copy_state_before();
+      }
+      if (!has_pending_field_access() && !has_pending_load_indexed()) {
+        obj = apop();
+        ObjectType* obj_type = obj->type()->as_ObjectType();
+        if (field->is_constant() && !field->is_flat() && obj_type->is_constant() && !PatchALot) {
+          ciObject* const_oop = obj_type->constant_value();
+          if (!const_oop->is_null_object() && const_oop->is_loaded()) {
+            ciConstant field_value = field->constant_value_of(const_oop);
+            if (field_value.is_valid()) {
+              constant = make_constant(field_value, field);
+              // For CallSite objects add a dependency for invalidation of the optimization.
+              if (field->is_call_site_target()) {
+                ciCallSite* call_site = const_oop->as_call_site();
+                if (!call_site->is_fully_initialized_constant_call_site()) {
+                  ciMethodHandle* target = field_value.as_object()->as_method_handle();
+                  dependency_recorder()->assert_call_site_target_value(call_site, target);
+                }
               }
             }
           }
@@ -1816,30 +1939,126 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
         if (state_before == nullptr) {
           state_before = copy_state_for_exception();
         }
-        LoadField* load = new LoadField(obj, offset, field, false, state_before, needs_patching);
-        Value replacement = !needs_patching ? _memory->load(load) : load;
-        if (replacement != load) {
-          assert(replacement->is_linked() || !replacement->can_be_linked(), "should already by linked");
-          // Writing an (integer) value to a boolean, byte, char or short field includes an implicit narrowing
-          // conversion. Emit an explicit conversion here to get the correct field value after the write.
-          BasicType bt = field->type()->basic_type();
-          switch (bt) {
-          case T_BOOLEAN:
-          case T_BYTE:
-            replacement = append(new Convert(Bytecodes::_i2b, replacement, as_ValueType(bt)));
-            break;
-          case T_CHAR:
-            replacement = append(new Convert(Bytecodes::_i2c, replacement, as_ValueType(bt)));
-            break;
-          case T_SHORT:
-            replacement = append(new Convert(Bytecodes::_i2s, replacement, as_ValueType(bt)));
-            break;
-          default:
+        if (!field->is_flat()) {
+          if (has_pending_field_access()) {
+            assert(!needs_patching, "Can't patch delayed field access");
+            obj = pending_field_access()->obj();
+            offset += pending_field_access()->offset() - field->holder()->as_inline_klass()->payload_offset();
+            field = pending_field_access()->holder()->get_field_by_offset(offset, false);
+            assert(field != nullptr, "field not found");
+            set_pending_field_access(nullptr);
+          } else if (has_pending_load_indexed()) {
+            assert(!needs_patching, "Can't patch delayed field access");
+            pending_load_indexed()->update(field, offset - field->holder()->as_inline_klass()->payload_offset());
+            LoadIndexed* li = pending_load_indexed()->load_instr();
+            li->set_type(type);
+            push(type, append(li));
+            set_pending_load_indexed(nullptr);
             break;
           }
-          push(type, replacement);
+          LoadField* load = new LoadField(obj, offset, field, false, state_before, needs_patching);
+          Value replacement = !needs_patching ? _memory->load(load) : load;
+          if (replacement != load) {
+            assert(replacement->is_linked() || !replacement->can_be_linked(), "should already by linked");
+            // Writing an (integer) value to a boolean, byte, char or short field includes an implicit narrowing
+            // conversion. Emit an explicit conversion here to get the correct field value after the write.
+            switch (field_type) {
+            case T_BOOLEAN:
+            case T_BYTE:
+              replacement = append(new Convert(Bytecodes::_i2b, replacement, type));
+              break;
+            case T_CHAR:
+              replacement = append(new Convert(Bytecodes::_i2c, replacement, type));
+              break;
+            case T_SHORT:
+              replacement = append(new Convert(Bytecodes::_i2s, replacement, type));
+              break;
+            default:
+              break;
+            }
+            push(type, replacement);
+          } else {
+            push(type, append(load));
+          }
         } else {
-          push(type, append(load));
+          // Flat field
+          assert(!needs_patching, "Can't patch flat inline type field access");
+          ciInlineKlass* inline_klass = field->type()->as_inline_klass();
+          bool is_naturally_atomic = inline_klass->nof_declared_nonstatic_fields() <= 1;
+          bool needs_atomic_access = !field->is_null_free() || (field->is_volatile() && !is_naturally_atomic);
+          if (needs_atomic_access) {
+            assert(!has_pending_field_access(), "Pending field accesses are not supported");
+            LoadField* load = new LoadField(obj, offset, field, false, state_before, needs_patching);
+            push(type, append(load));
+          } else {
+            assert(field->is_null_free(), "must be null-free");
+            // Look at the next bytecode to check if we can delay the field access
+            bool can_delay_access = false;
+            ciBytecodeStream s(method());
+            s.force_bci(bci());
+            s.next();
+            if (s.cur_bc() == Bytecodes::_getfield && !needs_patching) {
+              ciField* next_field = s.get_field(will_link);
+              bool next_needs_patching = !next_field->holder()->is_loaded() ||
+                                         !next_field->will_link(method(), Bytecodes::_getfield) ||
+                                         PatchALot;
+              // We can't update the offset for atomic accesses
+              bool next_needs_atomic_access = !next_field->is_null_free() || next_field->is_volatile();
+              can_delay_access = C1UseDelayedFlattenedFieldReads && !next_needs_patching && !next_needs_atomic_access;
+            }
+            if (can_delay_access) {
+              if (has_pending_load_indexed()) {
+                pending_load_indexed()->update(field, offset - field->holder()->as_inline_klass()->payload_offset());
+              } else if (has_pending_field_access()) {
+                pending_field_access()->inc_offset(offset - field->holder()->as_inline_klass()->payload_offset());
+              } else {
+                null_check(obj);
+                DelayedFieldAccess* dfa = new DelayedFieldAccess(obj, field->holder(), field->offset_in_bytes(), state_before);
+                set_pending_field_access(dfa);
+              }
+            } else {
+              scope()->set_wrote_final();
+              scope()->set_wrote_fields();
+              bool need_membar = false;
+              if (has_pending_load_indexed()) {
+                assert(!needs_patching, "Can't patch delayed field access");
+                pending_load_indexed()->update(field, offset - field->holder()->as_inline_klass()->payload_offset());
+                NewInstance* vt = new NewInstance(inline_klass, pending_load_indexed()->state_before(), false, true);
+                _memory->new_instance(vt);
+                pending_load_indexed()->load_instr()->set_vt(vt);
+                apush(append_split(vt));
+                append(pending_load_indexed()->load_instr());
+                set_pending_load_indexed(nullptr);
+                need_membar = true;
+              } else {
+                if (has_pending_field_access()) {
+                  state_before = pending_field_access()->state_before();
+                }
+                NewInstance* new_instance = new NewInstance(inline_klass, state_before, false, true);
+                _memory->new_instance(new_instance);
+                apush(append_split(new_instance));
+                if (has_pending_field_access()) {
+                  copy_inline_content(inline_klass, pending_field_access()->obj(),
+                                      pending_field_access()->offset() + field->offset_in_bytes() - field->holder()->as_inline_klass()->payload_offset(),
+                                      new_instance, inline_klass->payload_offset(), state_before);
+                  set_pending_field_access(nullptr);
+                } else {
+                  if (field->type()->as_instance_klass()->is_initialized() && field->type()->as_inline_klass()->is_empty()) {
+                    // Needs an explicit null check because below code does not perform any actual load if there are no fields
+                    null_check(obj);
+                  }
+                  copy_inline_content(inline_klass, obj, field->offset_in_bytes(), new_instance, inline_klass->payload_offset(), state_before);
+                }
+                need_membar = true;
+              }
+              if (need_membar) {
+                // If we allocated a new instance ensure the stores to copy the
+                // field contents are visible before any subsequent store that
+                // publishes this reference.
+                append(new MemBar(lir_membar_storestore));
+              }
+            }
+          }
         }
       }
       break;
@@ -1850,14 +2069,39 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
       if (state_before == nullptr) {
         state_before = copy_state_for_exception();
       }
-      if (field->type()->basic_type() == T_BOOLEAN) {
+      if (field_type == T_BOOLEAN) {
         Value mask = append(new Constant(new IntConstant(1)));
         val = append(new LogicOp(Bytecodes::_iand, val, mask));
       }
-      StoreField* store = new StoreField(obj, offset, field, val, false, state_before, needs_patching);
-      if (!needs_patching) store = _memory->store(store);
-      if (store != nullptr) {
-        append(store);
+
+      if (field->is_null_free() && field->type()->is_loaded() && field->type()->as_inline_klass()->is_empty() && (!method()->is_object_constructor() || field->is_flat())) {
+        // Storing to a field of an empty, null-free inline type that is already initialized. Ignore.
+        null_check(obj);
+        null_check(val);
+      } else if (!field->is_flat()) {
+        if (field->is_null_free()) {
+          null_check(val);
+        }
+        StoreField* store = new StoreField(obj, offset, field, val, false, state_before, needs_patching);
+        if (!needs_patching) store = _memory->store(store);
+        if (store != nullptr) {
+          append(store);
+        }
+      } else {
+        // Flat field
+        assert(!needs_patching, "Can't patch flat inline type field access");
+        ciInlineKlass* inline_klass = field->type()->as_inline_klass();
+        bool is_naturally_atomic = inline_klass->nof_declared_nonstatic_fields() <= 1;
+        bool needs_atomic_access = !field->is_null_free() || (field->is_volatile() && !is_naturally_atomic);
+        if (needs_atomic_access) {
+          if (field->is_null_free()) {
+            null_check(val);
+          }
+          append(new StoreField(obj, offset, field, val, false, state_before, needs_patching));
+        } else {
+          assert(field->is_null_free(), "must be null-free");
+          copy_inline_content(inline_klass, val, inline_klass->payload_offset(), obj, offset, state_before, field);
+        }
       }
       break;
     }
@@ -1866,7 +2110,6 @@ void GraphBuilder::access_field(Bytecodes::Code code) {
       break;
   }
 }
-
 
 Dependencies* GraphBuilder::dependency_recorder() const {
   assert(DeoptC1, "need debug information");
@@ -1984,7 +2227,7 @@ void GraphBuilder::invoke(Bytecodes::Code code) {
 
     if (bc_raw == Bytecodes::_invokeinterface) {
       receiver_constraint = holder;
-    } else if (bc_raw == Bytecodes::_invokespecial && !target->is_object_initializer() && calling_klass->is_interface()) {
+    } else if (bc_raw == Bytecodes::_invokespecial && !target->is_object_constructor() && calling_klass->is_interface()) {
       receiver_constraint = calling_klass;
     }
 
@@ -2228,7 +2471,7 @@ void GraphBuilder::invoke(Bytecodes::Code code) {
   append_split(result);
 
   if (result_type != voidType) {
-    push(result_type, round_fp(result));
+    push(result_type, result);
   }
   if (profile_return() && result_type->is_object_kind()) {
     profile_return_type(result, target);
@@ -2240,11 +2483,10 @@ void GraphBuilder::new_instance(int klass_index) {
   ValueStack* state_before = copy_state_exhandling();
   ciKlass* klass = stream()->get_klass();
   assert(klass->is_instance_klass(), "must be an instance klass");
-  NewInstance* new_instance = new NewInstance(klass->as_instance_klass(), state_before, stream()->is_unresolved_klass());
+  NewInstance* new_instance = new NewInstance(klass->as_instance_klass(), state_before, stream()->is_unresolved_klass(), false);
   _memory->new_instance(new_instance);
   apush(append_split(new_instance));
 }
-
 
 void GraphBuilder::new_type_array() {
   ValueStack* state_before = copy_state_exhandling();
@@ -2318,9 +2560,28 @@ void GraphBuilder::instance_of(int klass_index) {
 
 
 void GraphBuilder::monitorenter(Value x, int bci) {
+  bool maybe_inlinetype = false;
+  if (bci == InvocationEntryBci) {
+    // Called by GraphBuilder::inline_sync_entry.
+#ifdef ASSERT
+    ciType* obj_type = x->declared_type();
+    assert(obj_type == nullptr || !obj_type->is_inlinetype(), "inline types cannot have synchronized methods");
+#endif
+  } else {
+    // We are compiling a monitorenter bytecode
+    if (EnableValhalla) {
+      ciType* obj_type = x->declared_type();
+      if (obj_type == nullptr || obj_type->as_klass()->can_be_inline_klass()) {
+        // If we're (possibly) locking on an inline type, check for markWord::always_locked_pattern
+        // and throw IMSE. (obj_type is null for Phi nodes, so let's just be conservative).
+        maybe_inlinetype = true;
+      }
+    }
+  }
+
   // save state before locking in case of deoptimization after a NullPointerException
   ValueStack* state_before = copy_state_for_exception_with_bci(bci);
-  append_with_bci(new MonitorEnter(x, state()->lock(x), state_before), bci);
+  append_with_bci(new MonitorEnter(x, state()->lock(x), state_before, maybe_inlinetype), bci);
   kill_all();
 }
 
@@ -2353,29 +2614,6 @@ void GraphBuilder::throw_op(int bci) {
   // operand stack not needed after a throw
   state()->truncate_stack(0);
   append_with_bci(t, bci);
-}
-
-
-Value GraphBuilder::round_fp(Value fp_value) {
-  if (strict_fp_requires_explicit_rounding) {
-#ifdef IA32
-    // no rounding needed if SSE2 is used
-    if (UseSSE < 2) {
-      // Must currently insert rounding node for doubleword values that
-      // are results of expressions (i.e., not loads from memory or
-      // constants)
-      if (fp_value->type()->tag() == doubleTag &&
-          fp_value->as_Constant() == nullptr &&
-          fp_value->as_Local() == nullptr &&       // method parameters need no rounding
-          fp_value->as_RoundFP() == nullptr) {
-        return append(new RoundFP(fp_value));
-      }
-    }
-#else
-    Unimplemented();
-#endif // IA32
-  }
-  return fp_value;
 }
 
 
@@ -2468,6 +2706,7 @@ void GraphBuilder::null_check(Value value) {
         }
       }
     }
+    if (value->is_null_free()) return;
   }
   append(new NullCheck(value, copy_state_for_exception()));
 }
@@ -2493,7 +2732,9 @@ XHandlers* GraphBuilder::handle_exception(Instruction* instruction) {
   do {
     int cur_bci = cur_state->bci();
     assert(cur_scope_data->scope() == cur_state->scope(), "scopes do not match");
-    assert(cur_bci == SynchronizationEntryBCI || cur_bci == cur_scope_data->stream()->cur_bci(), "invalid bci");
+    assert(cur_bci == SynchronizationEntryBCI || cur_bci == cur_scope_data->stream()->cur_bci()
+           || has_pending_field_access() || has_pending_load_indexed(), "invalid bci");
+
 
     // join with all potential exception handlers
     XHandlers* list = cur_scope_data->xhandlers();
@@ -3275,7 +3516,8 @@ ValueStack* GraphBuilder::state_at_entry() {
   int idx = 0;
   if (!method()->is_static()) {
     // we should always see the receiver
-    state->store_local(idx, new Local(method()->holder(), objectType, idx, true));
+    state->store_local(idx, new Local(method()->holder(), objectType, idx,
+             /*receiver*/ true, /*null_free*/ method()->holder()->is_flat_array_klass()));
     idx = 1;
   }
 
@@ -3287,7 +3529,7 @@ ValueStack* GraphBuilder::state_at_entry() {
     // don't allow T_ARRAY to propagate into locals types
     if (is_reference_type(basic_type)) basic_type = T_OBJECT;
     ValueType* vt = as_ValueType(basic_type);
-    state->store_local(idx, new Local(type, vt, idx, false));
+    state->store_local(idx, new Local(type, vt, idx, false, false));
     idx += type->size();
   }
 
@@ -3307,6 +3549,8 @@ GraphBuilder::GraphBuilder(Compilation* compilation, IRScope* scope)
   , _inline_bailout_msg(nullptr)
   , _instruction_count(0)
   , _osr_entry(nullptr)
+  , _pending_field_access(nullptr)
+  , _pending_load_indexed(nullptr)
 {
   int osr_bci = compilation->osr_bci();
 

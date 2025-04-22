@@ -141,11 +141,12 @@ public final class CodeImpl
 
     @Override
     public void writeTo(BufWriterImpl buf) {
-        if (buf.canWriteDirect(classReader)) {
+        var methodInfo = (MethodInfo) enclosingMethod;
+        if (Util.canSkipMethodInflation(classReader, methodInfo, buf)) {
             super.writeTo(buf);
         }
         else {
-            DirectCodeBuilder.build((MethodInfo) enclosingMethod,
+            DirectCodeBuilder.build(methodInfo,
                                     Util.writingAll(this),
                                     (SplitConstantPool)buf.constantPool(),
                                     buf.context(),
@@ -279,7 +280,7 @@ public final class CodeImpl
         int p = stackMapPos + 2;
         for (int i = 0; i < nEntries; ++i) {
             int frameType = classReader.readU1(p);
-            int offsetDelta;
+            int offsetDelta = -1;
             if (frameType < 64) {
                 offsetDelta = frameType;
                 ++p;
@@ -288,8 +289,14 @@ public final class CodeImpl
                 offsetDelta = frameType & 0x3f;
                 p = adjustForObjectOrUninitialized(p + 1);
             }
-            else
+            else {
                 switch (frameType) {
+                    case 246 -> {
+                        int numberOfUnsetFields = classReader.readU2(p + 1);
+                        p += 3;
+                        p += 2 * numberOfUnsetFields;
+                        continue; // do not move bci/create label
+                    }
                     case 247 -> {
                         offsetDelta = classReader.readU2(p + 1);
                         p = adjustForObjectOrUninitialized(p + 3);
@@ -322,6 +329,7 @@ public final class CodeImpl
                     }
                     default -> throw new IllegalArgumentException("Bad frame type: " + frameType);
                 }
+            }
             bci += offsetDelta + 1;
             inflateLabel(bci);
         }

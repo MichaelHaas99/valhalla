@@ -151,6 +151,13 @@ public class ObjectMethodsTest {
         assertThrows(IAE, () -> ObjectMethods.bootstrap(LOOKUP, "hashCode", C.TO_STRING_DESC, C.class, "x;y", C.ACCESSORS));
         assertThrows(IAE, () -> ObjectMethods.bootstrap(LOOKUP, "equals",   C.HASHCODE_DESC,  C.class, "x;y", C.ACCESSORS));
 
+        assertThrows(IAE, () -> ObjectMethods.bootstrap(LOOKUP, "toString", methodType(String.class, this.getClass()), C.class, "x;y", C.ACCESSORS));
+        assertThrows(IAE, () -> ObjectMethods.bootstrap(LOOKUP, "toString", C.TO_STRING_DESC, C.class, "x;y",
+                     new MethodHandle[]{
+                            MethodHandles.lookup().findGetter(C.class, "x", int.class),
+                            MethodHandles.lookup().findGetter(this.getClass(), "y", int.class),
+                     }));
+
         record NamePlusType(String mn, MethodType mt) {}
         List<NamePlusType> namePlusTypeList = List.of(
                 new NamePlusType("toString", C.TO_STRING_DESC),
@@ -168,6 +175,9 @@ public class ObjectMethodsTest {
             assertThrows(NPE, () -> ObjectMethods.bootstrap(null, npt.mn(),     npt.mt(), C.class, "x;y", C.ACCESSORS));
         }
     }
+
+    // same field name and type as C::y
+    private int y;
 
     // Based on the ObjectMethods internal implementation
     private static int hashCombiner(int x, int y) {

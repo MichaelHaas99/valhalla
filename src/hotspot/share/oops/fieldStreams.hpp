@@ -39,6 +39,7 @@
 // cases.
 // HierarchicalFieldStream allows to also iterate over fields of supertypes.
 class FieldStreamBase : public StackObj {
+
  protected:
   const Array<u1>*    _fieldinfo_stream;
   FieldInfoReader     _reader;
@@ -110,12 +111,24 @@ class FieldStreamBase : public StackObj {
     return field()->offset();
   }
 
+  bool is_null_free_inline_type() {
+    return field()->field_flags().is_null_free_inline_type();
+  }
+
+  bool is_flat() const {
+    return field()->field_flags().is_flat();
+  }
+
   bool is_contended() const {
     return field()->is_contended();
   }
 
   int contended_group() const {
     return field()->contended_group();
+  }
+
+  int null_marker_offset() const {
+    return field()->null_marker_offset();
   }
 
   // Convenient methods
@@ -237,6 +250,9 @@ class HierarchicalFieldStream : public StackObj  {
   bool done() const { return _next_klass == nullptr && _current_stream.done(); }
 
   // bridge functions from FieldStreamBase
+  int index() const {
+    return _current_stream.index();
+  }
 
   AccessFlags access_flags() const {
     return _current_stream.access_flags();
@@ -278,6 +294,17 @@ class HierarchicalFieldStream : public StackObj  {
     return _current_stream.field_descriptor();
   }
 
+  bool is_flat() const {
+    return _current_stream.is_flat();
+  }
+
+  bool is_null_free_inline_type() {
+    return _current_stream.is_null_free_inline_type();
+  }
+
+  int null_marker_offset() {
+    return _current_stream.null_marker_offset();
+  }
 };
 
 #endif // SHARE_OOPS_FIELDSTREAMS_HPP

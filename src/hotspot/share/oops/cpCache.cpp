@@ -210,6 +210,7 @@ void ConstantPoolCache::set_direct_or_vtable_call(Bytecodes::Code invoke_code,
       //
       // We set bytecode_2() to _invokevirtual.
       // See also interpreterRuntime.cpp. (8/25/2000)
+      invoke_code = Bytecodes::_invokevirtual;
     } else {
       assert(invoke_code == Bytecodes::_invokevirtual ||
              (invoke_code == Bytecodes::_invokeinterface &&
@@ -225,7 +226,7 @@ void ConstantPoolCache::set_direct_or_vtable_call(Bytecodes::Code invoke_code,
       }
     }
     // set up for invokevirtual, even if linking for invokeinterface also:
-    method_entry->set_bytecode2(Bytecodes::_invokevirtual);
+    method_entry->set_bytecode2(invoke_code);
   } else {
     ShouldNotReachHere();
   }

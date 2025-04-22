@@ -49,7 +49,26 @@
 #endif
 
 // C2 compiled method's prolog code.
-void C2_MacroAssembler::verified_entry(int framesize, int stack_bang_size, bool fp_mode_24b, bool is_stub) {
+void C2_MacroAssembler::verified_entry(Compile* C, int sp_inc) {
+  if (C->clinit_barrier_on_entry()) {
+    assert(VM_Version::supports_fast_class_init_checks(), "sanity");
+    assert(!C->method()->holder()->is_not_initialized(), "initialization should have been started");
+
+    Label L_skip_barrier;
+    Register klass = rscratch1;
+
+    mov_metadata(klass, C->method()->holder()->constant_encoding());
+    clinit_barrier(klass, r15_thread, &L_skip_barrier /*L_fast_path*/);
+
+    jump(RuntimeAddress(SharedRuntime::get_handle_wrong_method_stub())); // slow path
+
+    bind(L_skip_barrier);
+  }
+
+  int framesize = C->output()->frame_size_in_bytes();
+  int bangsize = C->output()->bang_size_in_bytes();
+  bool fp_mode_24b = false;
+  int stack_bang_size = C->output()->need_stack_bang(bangsize) ? bangsize : 0;
 
   // WARNING: Initial instruction MUST be 5 bytes or longer so that
   // NativeJump::patch_verified_entry will be able to patch out the entry
@@ -102,6 +121,12 @@ void C2_MacroAssembler::verified_entry(int framesize, int stack_bang_size, bool 
     }
   }
 
+  if (C->needs_stack_repair()) {
+    // Save stack increment just below the saved rbp (also account for fixed framesize and rbp)
+    assert((sp_inc & (StackAlignmentInBytes-1)) == 0, "stack increment not aligned");
+    movptr(Address(rsp, framesize - wordSize), sp_inc + framesize + wordSize);
+  }
+
   if (VerifyStackAtCalls) { // Majik cookie to verify stack depth
     framesize -= wordSize;
     movptr(Address(rsp, framesize), (int32_t)0xbadb100d);
@@ -130,30 +155,28 @@ void C2_MacroAssembler::verified_entry(int framesize, int stack_bang_size, bool 
     bind(L);
   }
 #endif
+}
 
-  if (!is_stub) {
-    BarrierSetAssembler* bs = BarrierSet::barrier_set()->barrier_set_assembler();
- #ifdef _LP64
-    if (BarrierSet::barrier_set()->barrier_set_nmethod() != nullptr) {
-      // We put the non-hot code of the nmethod entry barrier out-of-line in a stub.
-      Label dummy_slow_path;
-      Label dummy_continuation;
-      Label* slow_path = &dummy_slow_path;
-      Label* continuation = &dummy_continuation;
-      if (!Compile::current()->output()->in_scratch_emit_size()) {
-        // Use real labels from actual stub when not emitting code for the purpose of measuring its size
-        C2EntryBarrierStub* stub = new (Compile::current()->comp_arena()) C2EntryBarrierStub();
-        Compile::current()->output()->add_stub(stub);
-        slow_path = &stub->entry();
-        continuation = &stub->continuation();
-      }
-      bs->nmethod_entry_barrier(this, slow_path, continuation);
-    }
-#else
-    // Don't bother with out-of-line nmethod entry barrier stub for x86_32.
-    bs->nmethod_entry_barrier(this, nullptr /* slow_path */, nullptr /* continuation */);
-#endif
+void C2_MacroAssembler::entry_barrier() {
+  BarrierSetAssembler* bs = BarrierSet::barrier_set()->barrier_set_assembler();
+#ifdef _LP64
+  // We put the non-hot code of the nmethod entry barrier out-of-line in a stub.
+  Label dummy_slow_path;
+  Label dummy_continuation;
+  Label* slow_path = &dummy_slow_path;
+  Label* continuation = &dummy_continuation;
+  if (!Compile::current()->output()->in_scratch_emit_size()) {
+    // Use real labels from actual stub when not emitting code for the purpose of measuring its size
+    C2EntryBarrierStub* stub = new (Compile::current()->comp_arena()) C2EntryBarrierStub();
+    Compile::current()->output()->add_stub(stub);
+    slow_path = &stub->entry();
+    continuation = &stub->continuation();
   }
+  bs->nmethod_entry_barrier(this, slow_path, continuation);
+#else
+  // Don't bother with out-of-line nmethod entry barrier stub for x86_32.
+  bs->nmethod_entry_barrier(this, nullptr /* slow_path */, nullptr /* continuation */);
+#endif
 }
 
 inline Assembler::AvxVectorLen C2_MacroAssembler::vector_length_encoding(int vlen_in_bytes) {
@@ -291,6 +314,10 @@ void C2_MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmp
     assert(LockingMode == LM_LEGACY, "must be");
     // Attempt stack-locking ...
     orptr (tmpReg, markWord::unlocked_value);
+    if (EnableValhalla) {
+      // Mask inline_type bit such that we go to the slow path if object is an inline type
+      andptr(tmpReg, ~((int) markWord::inline_type_bit_in_place));
+    }
     movptr(Address(boxReg, 0), tmpReg);          // Anticipate successful CAS
     lock();
     cmpxchgptr(boxReg, Address(objReg, oopDesc::mark_offset_in_bytes()));      // Updates tmpReg
@@ -6857,7 +6884,7 @@ void C2_MacroAssembler::vpsign_extend_dq(BasicType elem_bt, XMMRegister dst, XMM
 
 void C2_MacroAssembler::vpgenmax_value(BasicType elem_bt, XMMRegister dst, XMMRegister allones, int vlen_enc, bool compute_allones) {
   if (compute_allones) {
-    if (vlen_enc == Assembler::AVX_512bit) {
+    if (VM_Version::supports_avx512vl() || vlen_enc == Assembler::AVX_512bit) {
       vpternlogd(allones, 0xff, allones, allones, vlen_enc);
     } else {
       vpcmpeqq(allones, allones, allones, vlen_enc);
@@ -6873,7 +6900,7 @@ void C2_MacroAssembler::vpgenmax_value(BasicType elem_bt, XMMRegister dst, XMMRe
 
 void C2_MacroAssembler::vpgenmin_value(BasicType elem_bt, XMMRegister dst, XMMRegister allones, int vlen_enc, bool compute_allones) {
   if (compute_allones) {
-    if (vlen_enc == Assembler::AVX_512bit) {
+    if (VM_Version::supports_avx512vl() || vlen_enc == Assembler::AVX_512bit) {
       vpternlogd(allones, 0xff, allones, allones, vlen_enc);
     } else {
       vpcmpeqq(allones, allones, allones, vlen_enc);

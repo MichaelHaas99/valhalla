@@ -224,7 +224,7 @@ public class MemberEnter extends JCTree.Visitor {
 
         localEnv.info.scope.leave();
         if (chk.checkUnique(tree.pos(), m, enclScope)) {
-        enclScope.enter(m);
+            enclScope.enter(m);
         }
 
         annotate.annotateLater(tree.mods.annotations, localEnv, m, tree);
@@ -301,6 +301,8 @@ public class MemberEnter extends JCTree.Visitor {
                 needsLazyConstValue(tree.init)) {
                 Env<AttrContext> initEnv = getInitEnv(tree, env);
                 initEnv.info.enclVar = v;
+                initEnv = initEnv(tree, initEnv);
+                initEnv.info.ctorPrologue = (v.owner.kind == TYP && v.owner.isValueClass() && !v.isStatic());
                 v.setLazyConstValue(initEnv(tree, initEnv), env, attr, tree);
             }
         }

@@ -1546,6 +1546,12 @@ abstract class MethodHandleImpl {
                 return (flags & MN_HIDDEN_MEMBER) == MN_HIDDEN_MEMBER;
             }
 
+            public boolean isNullRestrictedField(MethodHandle mh) {
+                var memberName = mh.internalMemberName();
+                assert memberName.isField();
+                return memberName.isNullRestricted();
+            }
+
             @Override
             public Map<String, byte[]> generateHolderClasses(Stream<String> traces) {
                 return GenerateJLIClassesHelper.generateHolderClasses(traces);
@@ -1636,6 +1642,10 @@ abstract class MethodHandleImpl {
                 return IMPL_LOOKUP.serializableConstructor(decl, ctorToCall);
             }
 
+            @Override
+            public MethodHandle assertAsType(MethodHandle original, MethodType assertedType) {
+                return original.viewAsType(assertedType, false);
+            }
         });
     }
 

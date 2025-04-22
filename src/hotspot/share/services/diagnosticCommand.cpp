@@ -117,6 +117,7 @@ void DCmd::register_dcmds(){
   DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<SymboltableDCmd>(full_export, true, false));
   DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<StringtableDCmd>(full_export, true, false));
   DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<metaspace::MetaspaceDCmd>(full_export, true, false));
+  DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<PrintClassLayoutDCmd>(full_export, true, false));
   DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<EventLogDCmd>(full_export, true, false));
 #if INCLUDE_JVMTI // Both JVMTI and SERVICES have to be enabled to have this dcmd
   DCmdFactory::register_DCmdFactory(new DCmdFactoryImpl<JVMTIAgentLoadDCmd>(full_export, true, false));
@@ -945,7 +946,31 @@ void ClassHierarchyDCmd::execute(DCmdSource source, TRAPS) {
                                                _print_subclasses.value(), _classname.value());
   VMThread::execute(&printClassHierarchyOp);
 }
-#endif
+
+PrintClassLayoutDCmd::PrintClassLayoutDCmd(outputStream* output, bool heap) :
+                                       DCmdWithParser(output, heap),
+  _classname("classname", "Name of class whose layout should be printed. ",
+             "STRING", true) {
+  _dcmdparser.add_dcmd_argument(&_classname);
+}
+
+void PrintClassLayoutDCmd::execute(DCmdSource source, TRAPS) {
+  VM_PrintClassLayout printClassLayoutOp(output(), _classname.value());
+  VMThread::execute(&printClassLayoutOp);
+}
+
+int PrintClassLayoutDCmd::num_arguments() {
+  ResourceMark rm;
+  PrintClassLayoutDCmd* dcmd = new PrintClassLayoutDCmd(nullptr, false);
+  if (dcmd != nullptr) {
+    DCmdMark mark(dcmd);
+    return dcmd->_dcmdparser.num_arguments();
+  } else {
+    return 0;
+  }
+}
+
+#endif // INCLUDE_SERVICES
 
 ClassesDCmd::ClassesDCmd(outputStream* output, bool heap) :
                                      DCmdWithParser(output, heap),

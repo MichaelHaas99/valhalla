@@ -154,12 +154,12 @@ public:
     void do_Base           (Base*            x) { /* nothing to do */ };
     void do_OsrEntry       (OsrEntry*        x) { /* nothing to do */ };
     void do_ExceptionObject(ExceptionObject* x) { /* nothing to do */ };
-    void do_RoundFP        (RoundFP*         x) { /* nothing to do */ };
     void do_UnsafePut      (UnsafePut*       x) { /* nothing to do */ };
     void do_UnsafeGet      (UnsafeGet*       x) { /* nothing to do */ };
     void do_UnsafeGetAndSet(UnsafeGetAndSet* x) { /* nothing to do */ };
     void do_ProfileCall    (ProfileCall*     x) { /* nothing to do */ };
     void do_ProfileReturnType (ProfileReturnType*  x) { /* nothing to do */ };
+    void do_ProfileACmpTypes(ProfileACmpTypes*  x) { /* nothing to do */ };
     void do_ProfileInvoke  (ProfileInvoke*   x) { /* nothing to do */ };
     void do_RuntimeCall    (RuntimeCall*     x) { /* nothing to do */ };
     void do_MemBar         (MemBar*          x) { /* nothing to do */ };

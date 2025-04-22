@@ -226,6 +226,15 @@ jint ciKlass::access_flags() {
 }
 
 // ------------------------------------------------------------------
+// ciKlass::prototype_header
+markWord ciKlass::prototype_header() const {
+  assert(is_loaded(), "not loaded");
+  GUARDED_VM_ENTRY(
+    return get_Klass()->prototype_header();
+  )
+}
+
+// ------------------------------------------------------------------
 // ciKlass::misc_flags
 klass_flags_t ciKlass::misc_flags() {
   assert(is_loaded(), "not loaded");

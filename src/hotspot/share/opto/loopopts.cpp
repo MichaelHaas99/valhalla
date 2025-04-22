@@ -32,6 +32,7 @@
 #include "opto/connode.hpp"
 #include "opto/castnode.hpp"
 #include "opto/divnode.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/loopnode.hpp"
 #include "opto/matcher.hpp"
 #include "opto/mulnode.hpp"
@@ -60,6 +61,12 @@ Node* PhaseIdealLoop::split_thru_phi(Node* n, Node* region, int policy) {
   // induction Phi and prevent optimizations (vectorization)
   if (n->Opcode() == Op_CastII && region->is_CountedLoop() &&
       n->in(1) == region->as_CountedLoop()->phi()) {
+    return nullptr;
+  }
+
+  // Inline types should not be split through Phis because they cannot be merged
+  // through Phi nodes but each value input needs to be merged individually.
+  if (n->is_InlineType()) {
     return nullptr;
   }
 
@@ -760,6 +767,10 @@ Node *PhaseIdealLoop::conditional_move( Node *region ) {
     for (uint j = 1; j < region->req(); j++) {
       Node *proj = region->in(j);
       Node *inp = phi->in(j);
+      if (inp->isa_InlineType()) {
+        // TODO 8302217 This prevents PhiNode::push_inline_types_through
+        return nullptr;
+      }
       if (get_ctrl(inp) == proj) { // Found local op
         cost++;
         // Check for a chain of dependent ops; these will all become
@@ -789,6 +800,12 @@ Node *PhaseIdealLoop::conditional_move( Node *region ) {
   assert(!bol->is_OpaqueInitializedAssertionPredicate(), "Initialized Assertion Predicates cannot form a diamond with Halt");
   if (bol->is_OpaqueTemplateAssertionPredicate()) {
     // Ignore Template Assertion Predicates with OpaqueTemplateAssertionPredicate nodes.
+    return nullptr;
+  }
+  if (bol->is_OpaqueMultiversioning()) {
+    assert(bol->as_OpaqueMultiversioning()->is_useless(), "Must be useless, i.e. fast main loop has already disappeared.");
+    // Ignore multiversion_if that just lost its loops. The OpaqueMultiversioning is marked useless,
+    // and will make the multiversion_if constant fold in the next IGVN round.
     return nullptr;
   }
   if (!bol->is_Bool()) {
@@ -837,10 +854,9 @@ Node *PhaseIdealLoop::conditional_move( Node *region ) {
         break;
       }
     }
-    if (phi == nullptr || _igvn.type(phi) == Type::TOP) {
+    if (phi == nullptr || _igvn.type(phi) == Type::TOP || !CMoveNode::supported(_igvn.type(phi))) {
       break;
     }
-    if (PrintOpto && VerifyLoopOptimizations) { tty->print_cr("CMOV"); }
     // Move speculative ops
     wq.push(phi);
     while (wq.size() > 0) {
@@ -848,12 +864,6 @@ Node *PhaseIdealLoop::conditional_move( Node *region ) {
       for (uint j = 1; j < n->req(); j++) {
         Node* m = n->in(j);
         if (m != nullptr && !is_dominator(get_ctrl(m), cmov_ctrl)) {
-#ifndef PRODUCT
-          if (PrintOpto && VerifyLoopOptimizations) {
-            tty->print("  speculate: ");
-            m->dump();
-          }
-#endif
           set_ctrl(m, cmov_ctrl);
           wq.push(m);
         }
@@ -1090,6 +1100,54 @@ void PhaseIdealLoop::try_move_store_after_loop(Node* n) {
   }
 }
 
+// We can't use immutable memory for the flat array check because we are loading the mark word which is
+// mutable. Although the bits we are interested in are immutable (we check for markWord::unlocked_value),
+// we need to use raw memory to not break anti dependency analysis. Below code will attempt to still move
+// flat array checks out of loops, mainly to enable loop unswitching.
+void PhaseIdealLoop::move_flat_array_check_out_of_loop(Node* n) {
+  // Skip checks for more than one array
+  if (n->req() > 3) {
+    return;
+  }
+  Node* mem = n->in(FlatArrayCheckNode::Memory);
+  Node* array = n->in(FlatArrayCheckNode::ArrayOrKlass)->uncast();
+  IdealLoopTree* check_loop = get_loop(get_ctrl(n));
+  IdealLoopTree* ary_loop = get_loop(get_ctrl(array));
+
+  // Check if array is loop invariant
+  if (!check_loop->is_member(ary_loop)) {
+    // Walk up memory graph from the check until we leave the loop
+    VectorSet wq;
+    wq.set(mem->_idx);
+    while (check_loop->is_member(get_loop(ctrl_or_self(mem)))) {
+      if (mem->is_Phi()) {
+        mem = mem->in(1);
+      } else if (mem->is_MergeMem()) {
+        mem = mem->as_MergeMem()->memory_at(Compile::AliasIdxRaw);
+      } else if (mem->is_Proj()) {
+        mem = mem->in(0);
+      } else if (mem->is_MemBar() || mem->is_SafePoint()) {
+        mem = mem->in(TypeFunc::Memory);
+      } else if (mem->is_Store() || mem->is_LoadStore() || mem->is_ClearArray()) {
+        mem = mem->in(MemNode::Memory);
+      } else {
+#ifdef ASSERT
+        mem->dump();
+#endif
+        ShouldNotReachHere();
+      }
+      if (wq.test_set(mem->_idx)) {
+        return;
+      }
+    }
+    // Replace memory input and re-compute ctrl to move the check out of the loop
+    _igvn.replace_input_of(n, 1, mem);
+    set_ctrl_and_loop(n, get_early_ctrl(n));
+    Node* bol = n->unique_out();
+    set_ctrl_and_loop(bol, get_early_ctrl(bol));
+  }
+}
+
 // Split some nodes that take a counted loop phi as input at a counted
 // loop can cause vectorization of some expressions to fail
 bool PhaseIdealLoop::split_thru_phi_could_prevent_vectorization(Node* n, Node* n_blk) {
@@ -1121,6 +1179,12 @@ Node *PhaseIdealLoop::split_if_with_blocks_pre( Node *n ) {
   if (n->is_Proj()) {
     return n;
   }
+
+  if (n->isa_FlatArrayCheck()) {
+    move_flat_array_check_out_of_loop(n);
+    return n;
+  }
+
   // Do not clone-up CmpFXXX variations, as these are always
   // followed by a CmpI
   if (n->is_Cmp()) {
@@ -1400,11 +1464,113 @@ static Node* is_inner_of_stripmined_loop(const Node* out) {
   return out_le;
 }
 
+bool PhaseIdealLoop::flat_array_element_type_check(Node *n) {
+  // If the CmpP is a subtype check for a value that has just been
+  // loaded from an array, the subtype check guarantees the value
+  // can't be stored in a flat array and the load of the value
+  // happens with a flat array check then: push the type check
+  // through the phi of the flat array check. This needs special
+  // logic because the subtype check's input is not a phi but a
+  // LoadKlass that must first be cloned through the phi.
+  if (n->Opcode() != Op_CmpP) {
+    return false;
+  }
+
+  Node* klassptr = n->in(1);
+  Node* klasscon = n->in(2);
+
+  if (klassptr->is_DecodeNarrowPtr()) {
+    klassptr = klassptr->in(1);
+  }
+
+  if (klassptr->Opcode() != Op_LoadKlass && klassptr->Opcode() != Op_LoadNKlass) {
+    return false;
+  }
+
+  if (!klasscon->is_Con()) {
+    return false;
+  }
+
+  Node* addr = klassptr->in(MemNode::Address);
+
+  if (!addr->is_AddP()) {
+    return false;
+  }
+
+  intptr_t offset;
+  Node* obj = AddPNode::Ideal_base_and_offset(addr, &_igvn, offset);
+
+  if (obj == nullptr) {
+    return false;
+  }
+
+  assert(obj != nullptr && addr->in(AddPNode::Base) == addr->in(AddPNode::Address), "malformed AddP?");
+  if (obj->Opcode() == Op_CastPP) {
+    obj = obj->in(1);
+  }
+
+  if (!obj->is_Phi()) {
+    return false;
+  }
+
+  Node* region = obj->in(0);
+
+  Node* phi = PhiNode::make_blank(region, n->in(1));
+  for (uint i = 1; i < region->req(); i++) {
+    Node* in = obj->in(i);
+    Node* ctrl = region->in(i);
+    if (addr->in(AddPNode::Base) != obj) {
+      Node* cast = addr->in(AddPNode::Base);
+      assert(cast->Opcode() == Op_CastPP && cast->in(0) != nullptr, "inconsistent subgraph");
+      Node* cast_clone = cast->clone();
+      cast_clone->set_req(0, ctrl);
+      cast_clone->set_req(1, in);
+      register_new_node(cast_clone, ctrl);
+      const Type* tcast = cast_clone->Value(&_igvn);
+      _igvn.set_type(cast_clone, tcast);
+      cast_clone->as_Type()->set_type(tcast);
+      in = cast_clone;
+    }
+    Node* addr_clone = addr->clone();
+    addr_clone->set_req(AddPNode::Base, in);
+    addr_clone->set_req(AddPNode::Address, in);
+    register_new_node(addr_clone, ctrl);
+    _igvn.set_type(addr_clone, addr_clone->Value(&_igvn));
+    Node* klassptr_clone = klassptr->clone();
+    klassptr_clone->set_req(2, addr_clone);
+    register_new_node(klassptr_clone, ctrl);
+    _igvn.set_type(klassptr_clone, klassptr_clone->Value(&_igvn));
+    if (klassptr != n->in(1)) {
+      Node* decode = n->in(1);
+      assert(decode->is_DecodeNarrowPtr(), "inconsistent subgraph");
+      Node* decode_clone = decode->clone();
+      decode_clone->set_req(1, klassptr_clone);
+      register_new_node(decode_clone, ctrl);
+      _igvn.set_type(decode_clone, decode_clone->Value(&_igvn));
+      klassptr_clone = decode_clone;
+    }
+    phi->set_req(i, klassptr_clone);
+  }
+  register_new_node(phi, region);
+  Node* orig = n->in(1);
+  _igvn.replace_input_of(n, 1, phi);
+  split_if_with_blocks_post(n);
+  if (n->outcnt() != 0) {
+    _igvn.replace_input_of(n, 1, orig);
+    _igvn.remove_dead_node(phi);
+  }
+  return true;
+}
+
 //------------------------------split_if_with_blocks_post----------------------
 // Do the real work in a non-recursive function.  CFG hackery wants to be
 // in the post-order, so it can dirty the I-DOM info and not use the dirtied
 // info.
 void PhaseIdealLoop::split_if_with_blocks_post(Node *n) {
+
+  if (flat_array_element_type_check(n)) {
+    return;
+  }
 
   // Cloning Cmp through Phi's involves the split-if transform.
   // FastLock is not used by an If
@@ -1485,7 +1651,7 @@ void PhaseIdealLoop::split_if_with_blocks_post(Node *n) {
 
     // Now split the IF
     C->print_method(PHASE_BEFORE_SPLIT_IF, 4, iff);
-    if ((PrintOpto && VerifyLoopOptimizations) || TraceLoopOpts) {
+    if (TraceLoopOpts) {
       tty->print_cr("Split-If");
     }
     do_split_if(iff);
@@ -1556,6 +1722,11 @@ void PhaseIdealLoop::split_if_with_blocks_post(Node *n) {
   }
 
   try_move_store_after_loop(n);
+
+  // Remove multiple allocations of the same inline type
+  if (n->is_InlineType()) {
+    n->as_InlineType()->remove_redundant_allocations(this);
+  }
 }
 
 // Transform:
@@ -2047,10 +2218,18 @@ Node* PhaseIdealLoop::clone_iff(PhiNode* phi) {
   } else {
     sample_bool = n;
   }
-  Node *sample_cmp = sample_bool->in(1);
+  Node* sample_cmp = sample_bool->in(1);
+  const Type* t = Type::TOP;
+  const TypePtr* at = nullptr;
+  if (sample_cmp->is_FlatArrayCheck()) {
+    // Left input of a FlatArrayCheckNode is memory, set the (adr) type of the phi accordingly
+    assert(sample_cmp->in(1)->bottom_type() == Type::MEMORY, "unexpected input type");
+    t = Type::MEMORY;
+    at = TypeRawPtr::BOTTOM;
+  }
 
   // Make Phis to merge the Cmp's inputs.
-  PhiNode *phi1 = new PhiNode(phi->in(0), Type::TOP);
+  PhiNode *phi1 = new PhiNode(phi->in(0), t, at);
   PhiNode *phi2 = new PhiNode(phi->in(0), Type::TOP);
   for (i = 1; i < phi->req(); i++) {
     Node *n1 = sample_opaque == nullptr ? phi->in(i)->in(1)->in(1) : phi->in(i)->in(1)->in(1)->in(1);
@@ -4485,7 +4664,7 @@ PhaseIdealLoop::auto_vectorize(IdealLoopTree* lpt, VSharedData &vshared) {
   return AutoVectorizeStatus::Success;
 }
 
-// Just before insert_pre_post_loops, we can multi-version the loop:
+// Just before insert_pre_post_loops, we can multiversion the loop:
 //
 //              multiversion_if
 //               |       |

@@ -692,6 +692,12 @@ const Type *AddPNode::bottom_type() const {
   if (tx->is_con()) {   // Left input is an add of a constant?
     txoffset = tx->get_con();
   }
+  if (tp->isa_aryptr()) {
+    // In the case of a flat inline type array, each field has its
+    // own slice so we need to extract the field being accessed from
+    // the address computation
+    return tp->is_aryptr()->add_field_offset_and_offset(txoffset);
+  }
   return tp->add_offset(txoffset);
 }
 
@@ -711,6 +717,12 @@ const Type* AddPNode::Value(PhaseGVN* phase) const {
   intptr_t p2offset = Type::OffsetBot;
   if (p2->is_con()) {   // Left input is an add of a constant?
     p2offset = p2->get_con();
+  }
+  if (p1->isa_aryptr()) {
+    // In the case of a flat inline type array, each field has its
+    // own slice so we need to extract the field being accessed from
+    // the address computation
+    return p1->is_aryptr()->add_field_offset_and_offset(p2offset);
   }
   return p1->add_offset(p2offset);
 }
@@ -854,6 +866,12 @@ const Type *OrINode::add_ring( const Type *t0, const Type *t1 ) const {
     }
   }
 
+  // If either input is all ones, the output is all ones.
+  // x | ~0 == ~0 <==> x | -1 == -1
+  if (r0 == TypeInt::MINUS_1 || r1 == TypeInt::MINUS_1) {
+    return TypeInt::MINUS_1;
+  }
+
   // If either input is not a constant, just return all integers.
   if( !r0->is_con() || !r1->is_con() )
     return TypeInt::INT;        // Any integer, but still no symbols.
@@ -910,6 +928,12 @@ Node* OrLNode::Ideal(PhaseGVN* phase, bool can_reshape) {
 const Type *OrLNode::add_ring( const Type *t0, const Type *t1 ) const {
   const TypeLong *r0 = t0->is_long(); // Handy access
   const TypeLong *r1 = t1->is_long();
+
+  // If either input is all ones, the output is all ones.
+  // x | ~0 == ~0 <==> x | -1 == -1
+  if (r0 == TypeLong::MINUS_1 || r1 == TypeLong::MINUS_1) {
+    return TypeLong::MINUS_1;
+  }
 
   // If either input is not a constant, just return all integers.
   if( !r0->is_con() || !r1->is_con() )

@@ -58,6 +58,8 @@
 #include "oops/constantPool.hpp"
 #include "oops/cpCache.hpp"
 #include "oops/fieldInfo.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/instanceClassLoaderKlass.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/instanceMirrorKlass.hpp"
@@ -189,7 +191,7 @@
   nonstatic_field(ResolvedMethodEntry,         _cpool_index,                                  u2)                                    \
   nonstatic_field(ConstantPoolCache,           _resolved_indy_entries,                        Array<ResolvedIndyEntry>*)             \
   nonstatic_field(ResolvedIndyEntry,           _cpool_index,                                  u2)                                    \
-  volatile_nonstatic_field(InstanceKlass,      _array_klasses,                                ObjArrayKlass*)                        \
+  volatile_nonstatic_field(InstanceKlass,      _array_klasses,                                ArrayKlass*)                        \
   nonstatic_field(InstanceKlass,               _methods,                                      Array<Method*>*)                       \
   nonstatic_field(InstanceKlass,               _default_methods,                              Array<Method*>*)                       \
   nonstatic_field(InstanceKlass,               _local_interfaces,                             Array<InstanceKlass*>*)                \
@@ -519,6 +521,8 @@
   nonstatic_field(CodeBlob,                    _frame_size,                                   int)                                   \
   nonstatic_field(CodeBlob,                    _oop_maps,                                     ImmutableOopMapSet*)                   \
   nonstatic_field(CodeBlob,                    _caller_must_gc_arguments,                     bool)                                  \
+  nonstatic_field(CodeBlob,                    _mutable_data,                                 address)                               \
+  nonstatic_field(CodeBlob,                    _mutable_data_size,                            int)                                   \
                                                                                                                                      \
   nonstatic_field(DeoptimizationBlob,          _unpack_offset,                                int)                                   \
                                                                                                                                      \
@@ -541,8 +545,7 @@
   nonstatic_field(nmethod,                     _deopt_mh_handler_offset,                      int)                                   \
   nonstatic_field(nmethod,                     _orig_pc_offset,                               int)                                   \
   nonstatic_field(nmethod,                     _stub_offset,                                  int)                                   \
-  nonstatic_field(nmethod,                     _metadata_offset,                              u2)                                    \
-  nonstatic_field(nmethod,                     _scopes_pcs_offset,                            int)                                    \
+  nonstatic_field(nmethod,                     _scopes_pcs_offset,                            int)                                   \
   nonstatic_field(nmethod,                     _scopes_data_offset,                           int)                                   \
   nonstatic_field(nmethod,                     _handler_table_offset,                         u2)                                    \
   nonstatic_field(nmethod,                     _nul_chk_table_offset,                         u2)                                    \
@@ -936,9 +939,11 @@
     declare_type(Metadata, MetaspaceObj)                                  \
     declare_type(Klass, Metadata)                                         \
            declare_type(ArrayKlass, Klass)                                \
+           declare_type(FlatArrayKlass, ArrayKlass)                       \
            declare_type(ObjArrayKlass, ArrayKlass)                        \
            declare_type(TypeArrayKlass, ArrayKlass)                       \
       declare_type(InstanceKlass, Klass)                                  \
+        declare_type(InlineKlass, InstanceKlass)                          \
         declare_type(InstanceClassLoaderKlass, InstanceKlass)             \
         declare_type(InstanceMirrorKlass, InstanceKlass)                  \
         declare_type(InstanceRefKlass, InstanceKlass)                     \

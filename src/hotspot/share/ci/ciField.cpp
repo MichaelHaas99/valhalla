@@ -70,7 +70,7 @@
 // ------------------------------------------------------------------
 // ciField::ciField
 ciField::ciField(ciInstanceKlass* klass, int index, Bytecodes::Code bc) :
-    _known_to_link_with_put(nullptr), _known_to_link_with_get(nullptr) {
+  _original_holder(nullptr), _is_flat(false), _known_to_link_with_put(nullptr), _known_to_link_with_get(nullptr) {
   ASSERT_IN_VM;
   CompilerThread *THREAD = CompilerThread::current();
 
@@ -101,6 +101,9 @@ ciField::ciField(ciInstanceKlass* klass, int index, Bytecodes::Code bc) :
   } else {
     _type = ciType::make(field_type);
   }
+
+  _is_null_free = false;
+  _null_marker_offset = -1;
 
   // Get the field's declared holder.
   //
@@ -213,6 +216,32 @@ ciField::ciField(fieldDescriptor *fd) :
          "bootstrap classes must not create & cache unshared fields");
 }
 
+// Special copy constructor used to flatten inline type fields by
+// copying the fields of the inline type to a new holder klass.
+ciField::ciField(ciField* field, ciInstanceKlass* holder, int offset, bool is_final) {
+  assert(field->holder()->is_inlinetype() || field->holder()->is_abstract(), "should only be used for inline type field flattening");
+  // Set the is_final flag
+  jint final = is_final ? JVM_ACC_FINAL : ~JVM_ACC_FINAL;
+  AccessFlags flags(field->flags().as_int() & final);
+  _flags = ciFlags(flags);
+  _holder = holder;
+  _offset = offset;
+  // Copy remaining fields
+  _name = field->_name;
+  _signature = field->_signature;
+  _type = field->_type;
+  // Trust final flat fields
+  _is_constant = is_final;
+  _known_to_link_with_put = field->_known_to_link_with_put;
+  _known_to_link_with_get = field->_known_to_link_with_get;
+  _constant_value = field->_constant_value;
+  assert(!field->is_flat(), "field must not be flat");
+  _is_flat = false;
+  _is_null_free = field->_is_null_free;
+  _null_marker_offset = field->_null_marker_offset;
+  _original_holder = (field->_original_holder != nullptr) ? field->_original_holder : field->_holder;
+}
+
 static bool trust_final_non_static_fields(ciInstanceKlass* holder) {
   if (holder == nullptr)
     return false;
@@ -229,6 +258,9 @@ static bool trust_final_non_static_fields(ciInstanceKlass* holder) {
   // Trust hidden classes. They are created via Lookup.defineHiddenClass and
   // can't be serialized, so there is no hacking of finals going on with them.
   if (holder->is_hidden())
+    return true;
+  // Trust final fields in inline type buffers
+  if (holder->is_inlinetype())
     return true;
   // Trust final fields in all boxed classes
   if (holder->is_box_klass())
@@ -254,9 +286,18 @@ void ciField::initialize_from(fieldDescriptor* fd) {
   // Get the flags, offset, and canonical holder of the field.
   _flags = ciFlags(fd->access_flags(), fd->field_flags().is_stable(), fd->field_status().is_initialized_final_update());
   _offset = fd->offset();
-  Klass* field_holder = fd->field_holder();
+  InstanceKlass* field_holder = fd->field_holder();
   assert(field_holder != nullptr, "null field_holder");
   _holder = CURRENT_ENV->get_instance_klass(field_holder);
+  _is_flat = fd->is_flat();
+  _is_null_free = fd->is_null_free_inline_type();
+  if (fd->has_null_marker()) {
+    InlineLayoutInfo* li = field_holder->inline_layout_info_adr(fd->index());
+    _null_marker_offset = li->null_marker_offset();
+  } else {
+    _null_marker_offset = -1;
+  }
+  _original_holder = nullptr;
 
   // Check to see if the field is constant.
   Klass* k = _holder->get_Klass();
@@ -339,7 +380,9 @@ ciType* ciField::compute_type() {
 }
 
 ciType* ciField::compute_type_impl() {
-  ciKlass* type = CURRENT_ENV->get_klass_by_name_impl(_holder, constantPoolHandle(), _signature, false);
+  // Use original holder for fields that came in through flattening
+  ciKlass* accessing_klass = (_original_holder != nullptr) ? _original_holder : _holder;
+  ciKlass* type = CURRENT_ENV->get_klass_by_name_impl(accessing_klass, constantPoolHandle(), _signature, false);
   if (!type->is_primitive_type() && is_shared()) {
     // We must not cache a pointer to an unshared type, in a shared field.
     bool type_is_also_shared = false;
@@ -452,6 +495,9 @@ void ciField::print() {
     tty->print(" constant_value=");
     _constant_value.print();
   }
+  tty->print(" is_flat=%s", bool_to_str(_is_flat));
+  tty->print(" is_null_free=%s", bool_to_str(_is_null_free));
+  tty->print(" null_marker_offset=%d", _null_marker_offset);
   tty->print(">");
 }
 

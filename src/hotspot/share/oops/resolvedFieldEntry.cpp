@@ -22,8 +22,11 @@
  *
  */
 
-#include "cds/archiveBuilder.hpp"
+#include "interpreter/bytecodes.hpp"
+#include "oops/instanceOop.hpp"
 #include "oops/resolvedFieldEntry.hpp"
+#include "utilities/globalDefinitions.hpp"
+#include "cds/archiveBuilder.hpp"
 
 void ResolvedFieldEntry::print_on(outputStream* st) const {
   st->print_cr("Field Entry:");
@@ -39,8 +42,19 @@ void ResolvedFieldEntry::print_on(outputStream* st) const {
   st->print_cr(" - TOS: %s", type2name(as_BasicType((TosState)tos_state())));
   st->print_cr(" - Is Final: %d", is_final());
   st->print_cr(" - Is Volatile: %d", is_volatile());
+  st->print_cr(" - Is Flat: %d", is_flat());
+  st->print_cr(" - Is Null Free Inline Type: %d", is_null_free_inline_type());
   st->print_cr(" - Get Bytecode: %s", Bytecodes::name((Bytecodes::Code)get_code()));
   st->print_cr(" - Put Bytecode: %s", Bytecodes::name((Bytecodes::Code)put_code()));
+}
+
+bool ResolvedFieldEntry::is_valid() const {
+  return field_holder()->is_instance_klass() &&
+    field_offset() >= instanceOopDesc::base_offset_in_bytes() && field_offset() < 0x7fffffff &&
+    as_BasicType((TosState)tos_state()) != T_ILLEGAL &&
+    _flags < (1 << (max_flag_shift + 1)) &&
+    (get_code() == 0 || get_code() == Bytecodes::_getstatic || get_code() == Bytecodes::_getfield) &&
+    (put_code() == 0 || put_code() == Bytecodes::_putstatic || put_code() == Bytecodes::_putfield);
 }
 
 #if INCLUDE_CDS

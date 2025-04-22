@@ -32,6 +32,9 @@
 #include "interpreter/interpreter.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "pauth_aarch64.hpp"
+#ifdef COMPILER1
+#include "c1/c1_Runtime1.hpp"
+#endif
 
 // Inline functions for AArch64 frames:
 
@@ -404,21 +407,50 @@ inline frame frame::sender_for_compiled_frame(RegisterMap* map) const {
   assert(_cb->frame_size() > 0, "must have non-zero frame size");
   intptr_t* l_sender_sp = (!PreserveFramePointer || _sp_is_trusted) ? unextended_sp() + _cb->frame_size()
                                                                     : sender_sp();
+#ifdef ASSERT
+   address sender_pc_copy = pauth_strip_verifiable((address) *(l_sender_sp-1));
+#endif
+
   assert(!_sp_is_trusted || l_sender_sp == real_fp(), "");
+
+  intptr_t** saved_fp_addr = (intptr_t**) (l_sender_sp - frame::sender_sp_offset);
+
+  // Repair the sender sp if the frame has been extended
+  l_sender_sp = repair_sender_sp(l_sender_sp, saved_fp_addr);
 
   // The return_address is always the word on the stack.
   // For ROP protection, C1/C2 will have signed the sender_pc,
   // but there is no requirement to authenticate it here.
   address sender_pc = pauth_strip_verifiable((address) *(l_sender_sp - 1));
 
-  intptr_t** saved_fp_addr = (intptr_t**) (l_sender_sp - frame::sender_sp_offset);
+#ifdef ASSERT
+  if (sender_pc != sender_pc_copy) {
+    // When extending the stack in the callee method entry to make room for unpacking of value
+    // type args, we keep a copy of the sender pc at the expected location in the callee frame.
+    // If the sender pc is patched due to deoptimization, the copy is not consistent anymore.
+    nmethod* nm = CodeCache::find_blob(sender_pc)->as_nmethod();
+    assert(sender_pc == nm->deopt_mh_handler_begin() || sender_pc == nm->deopt_handler_begin(), "unexpected sender pc");
+  }
+#endif
 
   if (map->update_map()) {
     // Tell GC to use argument oopmaps for some runtime stubs that need it.
     // For C1, the runtime stub might not have oop maps, so set this flag
     // outside of update_register_map.
-    if (!_cb->is_nmethod()) { // compiled frames do not use callee-saved registers
-      map->set_include_argument_oops(_cb->caller_must_gc_arguments(map->thread()));
+    bool c1_buffering = false;
+#ifdef COMPILER1
+    nmethod* nm = _cb->as_nmethod_or_null();
+    if (nm != nullptr && nm->is_compiled_by_c1() && nm->method()->has_scalarized_args() &&
+        pc() < nm->verified_inline_entry_point()) {
+      // The VEP and VIEP(RO) of C1-compiled methods call buffer_inline_args_xxx
+      // before doing any argument shuffling, so we need to scan the oops
+      // as the caller passes them.
+      c1_buffering = true;
+    }
+#endif
+    if (!_cb->is_nmethod() || c1_buffering) { // compiled frames do not use callee-saved registers
+      bool caller_args = _cb->caller_must_gc_arguments(map->thread()) || c1_buffering;
+      map->set_include_argument_oops(caller_args);
       if (oop_map() != nullptr) {
         _oop_map->update_register_map(this, map);
       }

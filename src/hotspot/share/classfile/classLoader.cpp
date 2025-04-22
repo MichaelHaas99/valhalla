@@ -1031,6 +1031,7 @@ InstanceKlass* ClassLoader::load_class(Symbol* name, PackageEntry* pkg_entry, bo
   ClassFileStream* stream = nullptr;
   s2 classpath_index = 0;
   ClassPathEntry* e = nullptr;
+  bool is_patched = false;
 
   // If search_append_only is true, boot loader visibility boundaries are
   // set to be _first_append_entry to the end. This includes:
@@ -1050,8 +1051,22 @@ InstanceKlass* ClassLoader::load_class(Symbol* name, PackageEntry* pkg_entry, bo
   // Note: The --patch-module entries are never searched if the boot loader's
   //       visibility boundary is limited to only searching the append entries.
   if (_patch_mod_entries != nullptr && !search_append_only) {
-    assert(!CDSConfig::is_dumping_archive(), "CDS doesn't support --patch-module during dumping");
-    stream = search_module_entries(THREAD, _patch_mod_entries, pkg_entry, file_name);
+    // At CDS dump time, the --patch-module entries are ignored. That means a
+    // class is still loaded from the runtime image even if it might
+    // appear in the _patch_mod_entries. The runtime shared class visibility
+    // check will determine if a shared class is visible based on the runtime
+    // environment, including the runtime --patch-module setting.
+    if (!CDSConfig::is_valhalla_preview()) {
+      // Dynamic dumping requires UseSharedSpaces to be enabled. Since --patch-module
+      // is not supported with UseSharedSpaces, we can never come here during dynamic dumping.
+      assert(!CDSConfig::is_dumping_archive(), "CDS doesn't support --patch-module during dumping");
+    }
+    if (CDSConfig::is_valhalla_preview() || !CDSConfig::is_dumping_static_archive()) {
+      stream = search_module_entries(THREAD, _patch_mod_entries, pkg_entry, file_name);
+      if (stream != nullptr) {
+        is_patched = true;
+      }
+    }
   }
 
   // Load Attempt #2: [jimage | exploded build]
@@ -1100,6 +1115,10 @@ InstanceKlass* ClassLoader::load_class(Symbol* name, PackageEntry* pkg_entry, bo
                                                            cl_info,
                                                            CHECK_NULL);
   result->set_classpath_index(classpath_index);
+  if (is_patched) {
+    result->set_shared_classpath_index(0);
+    result->set_shared_class_loader_type(ClassLoader::BOOT_LOADER);
+  }
   return result;
 }
 
@@ -1173,6 +1192,10 @@ void ClassLoader::record_result(JavaThread* current, InstanceKlass* ik,
 
   if (ik->is_hidden()) {
     record_hidden_class(ik);
+    return;
+  }
+
+  if (ik->shared_classpath_index() == 0 && ik->is_shared_boot_class()) {
     return;
   }
 

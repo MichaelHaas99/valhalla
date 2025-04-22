@@ -587,10 +587,12 @@ void ArchiveHeapWriter::update_header_for_requested_obj(oop requested_obj, oop s
   }
   // We need to retain the identity_hash, because it may have been used by some hashtables
   // in the shared heap.
-  if (!src_obj->fast_no_hash_check()) {
+  if (!src_obj->fast_no_hash_check() && (!(EnableValhalla && src_obj->mark().is_inline_type()))) {
     intptr_t src_hash = src_obj->identity_hash();
     if (UseCompactObjectHeaders) {
       fake_oop->set_mark(markWord::prototype().set_narrow_klass(nk).copy_set_hash(src_hash));
+    } else if (EnableValhalla) {
+      fake_oop->set_mark(src_klass->prototype_header().copy_set_hash(src_hash));
     } else {
       fake_oop->set_mark(markWord::prototype().copy_set_hash(src_hash));
     }

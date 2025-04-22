@@ -39,6 +39,7 @@
 #include "oops/method.inline.hpp"
 #include "oops/methodData.hpp"
 #include "oops/oop.inline.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/stackChunkOop.inline.hpp"
 #include "oops/verifyOopClosure.hpp"
 #include "prims/methodHandles.hpp"
@@ -59,6 +60,9 @@
 #include "utilities/debug.hpp"
 #include "utilities/decoder.hpp"
 #include "utilities/formatBuffer.hpp"
+#ifdef COMPILER1
+#include "c1/c1_Runtime1.hpp"
+#endif
 
 RegisterMap::RegisterMap(JavaThread *thread, UpdateMap update_map, ProcessFrames process_frames, WalkContinuation walk_cont) {
   _thread         = thread;
@@ -358,6 +362,25 @@ void frame::deoptimize(JavaThread* thread) {
 
   // Save the original pc before we patch in the new one
   nm->set_original_pc(this, pc());
+
+#ifdef COMPILER1
+  if (nm->is_compiled_by_c1() && nm->method()->has_scalarized_args() &&
+      pc() < nm->verified_inline_entry_point()) {
+    // The VEP and VIEP(RO) of C1-compiled methods call into the runtime to buffer scalarized value
+    // type args. We can't deoptimize at that point because the buffers have not yet been initialized.
+    // Also, if the method is synchronized, we first need to acquire the lock.
+    // Don't patch the return pc to delay deoptimization until we enter the method body (the check
+    // added in LIRGenerator::do_Base will detect the pending deoptimization by checking the original_pc).
+#if defined ASSERT && !defined AARCH64   // Stub call site does not look like NativeCall on AArch64
+    NativeCall* call = nativeCall_before(this->pc());
+    address dest = call->destination();
+    assert(dest == Runtime1::entry_for(C1StubId::buffer_inline_args_no_receiver_id) ||
+           dest == Runtime1::entry_for(C1StubId::buffer_inline_args_id), "unexpected safepoint in entry point");
+#endif
+    return;
+  }
+#endif
+
   patch_pc(thread, deopt);
   assert(is_deoptimized_frame(), "must be");
 
@@ -756,7 +779,7 @@ class InterpreterFrameClosure : public OffsetClosure {
 
  public:
   InterpreterFrameClosure(const frame* fr, int max_locals, int max_stack,
-                          OopClosure* f) {
+                          OopClosure* f, BufferedValueClosure* bvt_f) {
     _fr         = fr;
     _max_locals = max_locals;
     _max_stack  = max_stack;
@@ -768,7 +791,9 @@ class InterpreterFrameClosure : public OffsetClosure {
     if (offset < _max_locals) {
       addr = (oop*) _fr->interpreter_frame_local_at(offset);
       assert((intptr_t*)addr >= _fr->sp(), "must be inside the frame");
-      _f->do_oop(addr);
+      if (_f != nullptr) {
+        _f->do_oop(addr);
+      }
     } else {
       addr = (oop*) _fr->interpreter_frame_expression_stack_at((offset - _max_locals));
       // In case of exceptions, the expression stack is invalid and the esp will be reset to express
@@ -780,7 +805,9 @@ class InterpreterFrameClosure : public OffsetClosure {
         in_stack = (intptr_t*)addr >= _fr->interpreter_frame_tos_address();
       }
       if (in_stack) {
-        _f->do_oop(addr);
+        if (_f != nullptr) {
+          _f->do_oop(addr);
+        }
       }
     }
   }
@@ -955,7 +982,7 @@ void frame::oops_interpreted_do(OopClosure* f, const RegisterMap* map, bool quer
     }
   }
 
-  InterpreterFrameClosure blk(this, max_locals, m->max_stack(), f);
+  InterpreterFrameClosure blk(this, max_locals, m->max_stack(), f, nullptr);
 
   // process locals & expression stack
   InterpreterOopMap mask;
@@ -967,6 +994,23 @@ void frame::oops_interpreted_do(OopClosure* f, const RegisterMap* map, bool quer
   mask.iterate_oop(&blk);
 }
 
+void frame::buffered_values_interpreted_do(BufferedValueClosure* f) {
+  assert(is_interpreted_frame(), "Not an interpreted frame");
+  Thread *thread = Thread::current();
+  methodHandle m (thread, interpreter_frame_method());
+  jint      bci = interpreter_frame_bci();
+
+  assert(m->is_method(), "checking frame value");
+  assert(!m->is_native() && bci >= 0 && bci < m->code_size(),
+         "invalid bci value");
+
+  InterpreterFrameClosure blk(this, m->max_locals(), m->max_stack(), nullptr, f);
+
+  // process locals & expression stack
+  InterpreterOopMap mask;
+  m->mask_for(bci, &mask);
+  mask.iterate_oop(&blk);
+}
 
 void frame::oops_interpreted_arguments_do(Symbol* signature, bool has_receiver, OopClosure* f) const {
   InterpretedArgumentOopFinder finder(signature, has_receiver, this, f);
@@ -1019,6 +1063,7 @@ class CompiledArgumentOopFinder: public SignatureIterator {
   virtual void handle_oop_offset() {
     // Extract low order register number from register array.
     // In LP64-land, the high-order bits are valid but unhelpful.
+    assert(_offset < _arg_size, "out of bounds");
     VMReg reg = _regs[_offset].first();
     oop *loc = _fr.oopmapreg_to_oop_location(reg, _reg_map);
   #ifdef ASSERT
@@ -1045,11 +1090,7 @@ class CompiledArgumentOopFinder: public SignatureIterator {
     _has_appendix = has_appendix;
     _fr        = fr;
     _reg_map   = (RegisterMap*)reg_map;
-    _arg_size  = ArgumentSizeComputer(signature).size() + (has_receiver ? 1 : 0) + (has_appendix ? 1 : 0);
-
-    int arg_size;
-    _regs = SharedRuntime::find_callee_arguments(signature, has_receiver, has_appendix, &arg_size);
-    assert(arg_size == _arg_size, "wrong arg size");
+    _regs = SharedRuntime::find_callee_arguments(signature, has_receiver, has_appendix, &_arg_size);
   }
 
   void oops_do() {

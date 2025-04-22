@@ -36,6 +36,7 @@
 #include "memory/iterator.inline.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/compressedOops.inline.hpp"
+#include "oops/flatArrayKlass.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/instanceMirrorKlass.inline.hpp"
 #include "oops/objArrayKlass.inline.hpp"

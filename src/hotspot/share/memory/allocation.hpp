@@ -314,6 +314,7 @@ class MetaspaceObj {
   f(ConstantPoolCache) \
   f(Annotations) \
   f(MethodCounters) \
+  f(InlineLayoutInfo) \
   f(RecordComponent)
 
 #define METASPACE_OBJ_TYPE_DECLARE(name) name ## Type,

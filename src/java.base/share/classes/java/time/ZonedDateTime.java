@@ -91,6 +91,8 @@ import java.time.zone.ZoneRules;
 import java.util.List;
 import java.util.Objects;
 
+import jdk.internal.util.DateTimeHelper;
+
 /**
  * A date-time with a time-zone in the ISO-8601 calendar system,
  * such as {@code 2007-12-03T10:15:30+01:00 Europe/Paris}.
@@ -144,11 +146,18 @@ import java.util.Objects;
  * represents an instant, especially during a daylight savings overlap.
  * <p>
  * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
- * class; programmers should treat instances that are
- * {@linkplain #equals(Object) equal} as interchangeable and should not
- * use instances for synchronization, or unpredictable behavior may
- * occur. For example, in a future release, synchronization may fail.
- * The {@code equals} method should be used for comparisons.
+ * class; programmers should treat instances that are {@linkplain #equals(Object) equal}
+ * as interchangeable and should not use instances for synchronization, mutexes, or
+ * with {@linkplain java.lang.ref.Reference object references}.
+ *
+ * <div class="preview-block">
+ *      <div class="preview-comment">
+ *          When preview features are enabled, {@code ZonedDateTime} is a {@linkplain Class#isValue value class}.
+ *          Use of value class instances for synchronization, mutexes, or with
+ *          {@linkplain java.lang.ref.Reference object references} result in
+ *          {@link IdentityException}.
+ *      </div>
+ * </div>
  *
  * @implSpec
  * A {@code ZonedDateTime} holds state equivalent to three separate objects,
@@ -162,6 +171,7 @@ import java.util.Objects;
  * @since 1.8
  */
 @jdk.internal.ValueBased
+@jdk.internal.MigratedValueClass
 public final class ZonedDateTime
         implements Temporal, ChronoZonedDateTime<LocalDate>, Serializable {
 
@@ -2222,7 +2232,7 @@ public final class ZonedDateTime
             length += zoneStr.length() + 2;
         }
         var buf = new StringBuilder(length);
-        dateTime.formatTo(buf);
+        DateTimeHelper.formatTo(buf, dateTime);
         buf.append(offsetStr);
         if (zoneStr != null) {
             buf.append('[').append(zoneStr).append(']');

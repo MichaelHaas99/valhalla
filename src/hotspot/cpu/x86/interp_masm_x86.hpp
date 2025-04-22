@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,8 +53,8 @@ class InterpreterMacroAssembler: public MacroAssembler {
 
  public:
   InterpreterMacroAssembler(CodeBuffer* code) : MacroAssembler(code),
-    _locals_register(LP64_ONLY(r14) NOT_LP64(rdi)),
-    _bcp_register(LP64_ONLY(r13) NOT_LP64(rsi)) {}
+    _locals_register(r14),
+    _bcp_register(r13) {}
 
   void jump_to_entry(address entry);
 
@@ -121,9 +121,6 @@ class InterpreterMacroAssembler: public MacroAssembler {
                                     Register cpool,  // the constant pool (corrupted on return)
                                     Register index); // the constant pool index (corrupted on return)
 
-  NOT_LP64(void f2ieee();)        // truncate ftos to 32bits
-  NOT_LP64(void d2ieee();)        // truncate dtos to 64bits
-
   // Expression stack
   void pop_ptr(Register r = rax);
   void pop_i(Register r = rax);
@@ -143,18 +140,8 @@ class InterpreterMacroAssembler: public MacroAssembler {
   void pop_f(XMMRegister r);
   void pop_d(XMMRegister r);
   void push_d(XMMRegister r);
-#ifdef _LP64
   void pop_l(Register r = rax);
   void push_l(Register r = rax);
-#else
-  void pop_l(Register lo = rax, Register hi = rdx);
-  void pop_f();
-  void pop_d();
-
-  void push_l(Register lo = rax, Register hi = rdx);
-  void push_d();
-  void push_f();
-#endif // _LP64
 
   void pop(Register r) { ((MacroAssembler*)this)->pop(r); }
   void push(Register r) { ((MacroAssembler*)this)->push(r); }
@@ -168,7 +155,6 @@ class InterpreterMacroAssembler: public MacroAssembler {
     lea(rsp, Address(rbp, rcx, Address::times_ptr));
     // null last_sp until next java call
     movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
-    NOT_LP64(empty_FPU_stack());
   }
 
   // Helpers for swap and dup
@@ -177,7 +163,7 @@ class InterpreterMacroAssembler: public MacroAssembler {
 
   // Generate a subtype check: branch to ok_is_subtype if sub_klass is
   // a subtype of super_klass.
-  void gen_subtype_check( Register sub_klass, Label &ok_is_subtype );
+  void gen_subtype_check(Register sub_klass, Label &ok_is_subtype, bool profile = true);
 
   // Dispatching
   void dispatch_prolog(TosState state, int step = 0);
@@ -217,6 +203,20 @@ class InterpreterMacroAssembler: public MacroAssembler {
                          bool notify_jvmdi = true);
   void get_method_counters(Register method, Register mcs, Label& skip);
 
+  // Kills t1 and t2, preserves klass, return allocation in new_obj
+  void allocate_instance(Register klass, Register new_obj,
+                         Register t1, Register t2,
+                         bool clear_fields, Label& alloc_failed);
+
+  // Allocate instance in "obj" and read in the content of the inline field
+  // NOTES:
+  //   - input holder object via "obj", which must be rax,
+  //     will return new instance via the same reg
+  //   - assumes holder_klass and valueKlass field klass have both been resolved
+  void read_flat_field(Register entry,
+                       Register tmp1, Register tmp2,
+                       Register obj = rax);
+
   // Object locking
   void lock_object  (Register lock_reg);
   void unlock_object(Register lock_reg);
@@ -239,11 +239,8 @@ class InterpreterMacroAssembler: public MacroAssembler {
                         Register test_value_out,
                         Label& not_equal_continue);
 
-  void record_klass_in_profile(Register receiver, Register mdp,
-                               Register reg2, bool is_virtual_call);
-  void record_klass_in_profile_helper(Register receiver, Register mdp,
-                                      Register reg2, int start_row,
-                                      Label& done, bool is_virtual_call);
+  void record_klass_in_profile(Register receiver, Register mdp, Register reg2);
+  void record_klass_in_profile_helper(Register receiver, Register mdp, Register reg2, int start_row, Label &done);
   void record_item_in_profile_helper(Register item, Register mdp, Register reg2, int start_row,
                                      Label& done, int total_rows,
                                      OffsetFunction item_offset_fn,
@@ -255,7 +252,7 @@ class InterpreterMacroAssembler: public MacroAssembler {
   void update_mdp_for_ret(Register return_bci);
 
   void profile_taken_branch(Register mdp, Register bumped_count);
-  void profile_not_taken_branch(Register mdp);
+  void profile_not_taken_branch(Register mdp, bool acmp = false);
   void profile_call(Register mdp);
   void profile_final_call(Register mdp);
   void profile_virtual_call(Register receiver, Register mdp,
@@ -268,13 +265,16 @@ class InterpreterMacroAssembler: public MacroAssembler {
   void profile_switch_default(Register mdp);
   void profile_switch_case(Register index_in_scratch, Register mdp,
                            Register scratch2);
+  template <class ArrayData> void profile_array_type(Register mdp, Register array, Register tmp);
+
+  void profile_multiple_element_types(Register mdp, Register element, Register tmp, const Register tmp2);
+  void profile_element_type(Register mdp, Register element, Register tmp);
+  void profile_acmp(Register mdp, Register left, Register right, Register tmp);
 
   // Debugging
   // only if +VerifyOops && state == atos
 #define interp_verify_oop(reg, state) _interp_verify_oop(reg, state, __FILE__, __LINE__);
   void _interp_verify_oop(Register reg, TosState state, const char* file, int line);
-  // only if +VerifyFPU  && (state == ftos || state == dtos)
-  void verify_FPU(int stack_depth, TosState state = ftos);
 
   typedef enum { NotifyJVMTI, SkipNotifyJVMTI } NotifyMethodExitMode;
 

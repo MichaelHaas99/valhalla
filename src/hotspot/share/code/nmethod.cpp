@@ -127,6 +127,7 @@ struct java_nmethod_stats_struct {
   uint nmethod_count;
   uint total_nm_size;
   uint total_immut_size;
+  uint total_mut_size;
   uint relocation_size;
   uint consts_size;
   uint insts_size;
@@ -147,6 +148,7 @@ struct java_nmethod_stats_struct {
     nmethod_count += 1;
     total_nm_size       += nm->size();
     total_immut_size    += nm->immutable_data_size();
+    total_mut_size      += nm->mutable_data_size();
     relocation_size     += nm->relocation_size();
     consts_size         += nm->consts_size();
     insts_size          += nm->insts_size();
@@ -166,7 +168,7 @@ struct java_nmethod_stats_struct {
   void print_nmethod_stats(const char* name) {
     if (nmethod_count == 0)  return;
     tty->print_cr("Statistics for %u bytecoded nmethods for %s:", nmethod_count, name);
-    uint total_size = total_nm_size + total_immut_size;
+    uint total_size = total_nm_size + total_immut_size + total_mut_size;
     if (total_nm_size != 0) {
       tty->print_cr(" total size      = %u (100%%)", total_size);
       tty->print_cr(" in CodeCache    = %u (%f%%)", total_nm_size, (total_nm_size * 100.0f)/total_size);
@@ -174,9 +176,6 @@ struct java_nmethod_stats_struct {
     uint header_size = (uint)(nmethod_count * sizeof(nmethod));
     if (nmethod_count != 0) {
       tty->print_cr("   header        = %u (%f%%)", header_size, (header_size * 100.0f)/total_nm_size);
-    }
-    if (relocation_size != 0) {
-      tty->print_cr("   relocation    = %u (%f%%)", relocation_size, (relocation_size * 100.0f)/total_nm_size);
     }
     if (consts_size != 0) {
       tty->print_cr("   constants     = %u (%f%%)", consts_size, (consts_size * 100.0f)/total_nm_size);
@@ -190,12 +189,18 @@ struct java_nmethod_stats_struct {
     if (oops_size != 0) {
       tty->print_cr("   oops          = %u (%f%%)", oops_size, (oops_size * 100.0f)/total_nm_size);
     }
+    if (total_mut_size != 0) {
+      tty->print_cr(" mutable data    = %u (%f%%)", total_mut_size, (total_mut_size * 100.0f)/total_size);
+    }
+    if (relocation_size != 0) {
+      tty->print_cr("   relocation    = %u (%f%%)", relocation_size, (relocation_size * 100.0f)/total_mut_size);
+    }
     if (metadata_size != 0) {
-      tty->print_cr("   metadata      = %u (%f%%)", metadata_size, (metadata_size * 100.0f)/total_nm_size);
+      tty->print_cr("   metadata      = %u (%f%%)", metadata_size, (metadata_size * 100.0f)/total_mut_size);
     }
 #if INCLUDE_JVMCI
     if (jvmci_data_size != 0) {
-      tty->print_cr("   JVMCI data    = %u (%f%%)", jvmci_data_size, (jvmci_data_size * 100.0f)/total_nm_size);
+      tty->print_cr("   JVMCI data    = %u (%f%%)", jvmci_data_size, (jvmci_data_size * 100.0f)/total_mut_size);
     }
 #endif
     if (total_immut_size != 0) {
@@ -683,10 +688,6 @@ address nmethod::oops_reloc_begin() const {
     return code_begin() + frame_complete_offset();
   }
 
-  // It is not safe to read oops concurrently using entry barriers, if their
-  // location depend on whether the nmethod is entrant or not.
-  // assert(BarrierSet::barrier_set()->barrier_set_nmethod() == nullptr, "Not safe oop scan");
-
   address low_boundary = verified_entry_point();
   if (!is_in_use()) {
     low_boundary += NativeJump::instruction_size;
@@ -724,6 +725,17 @@ void nmethod::preserve_callee_argument_oops(frame fr, const RegisterMap *reg_map
       has_receiver = !(callee->access_flags().is_static());
       has_appendix = false;
       signature    = callee->signature();
+
+      // If inline types are passed as fields, use the extended signature
+      // which contains the types of all (oop) fields of the inline type.
+      if (is_compiled_by_c2() && callee->has_scalarized_args()) {
+        const GrowableArray<SigEntry>* sig = callee->adapter()->get_sig_cc();
+        assert(sig != nullptr, "sig should never be null");
+        TempNewSymbol tmp_sig = SigEntry::create_symbol(sig);
+        has_receiver = false; // The extended signature contains the receiver type
+        fr.oops_compiled_arguments_do(tmp_sig, has_receiver, has_appendix, reg_map, f);
+        return;
+      }
     } else {
       SimpleScopeDesc ssd(this, pc);
 
@@ -1072,6 +1084,13 @@ static void assert_no_oops_or_metadata(nmethod* nm) {
 }
 #endif
 
+static int required_mutable_data_size(CodeBuffer* code_buffer,
+                                      int jvmci_data_size = 0) {
+  return align_up(code_buffer->total_relocation_size(), oopSize) +
+         align_up(code_buffer->total_metadata_size(), oopSize) +
+         align_up(jvmci_data_size, oopSize);
+}
+
 nmethod* nmethod::new_native_nmethod(const methodHandle& method,
   int compile_id,
   CodeBuffer *code_buffer,
@@ -1096,6 +1115,8 @@ nmethod* nmethod::new_native_nmethod(const methodHandle& method,
       offsets.set_value(CodeOffsets::Exceptions, exception_handler);
     }
 
+    int mutable_data_size = required_mutable_data_size(code_buffer);
+
     // MH intrinsics are dispatch stubs which are compatible with NonNMethod space.
     // IsUnloadingBehaviour::is_unloading needs to handle them separately.
     bool allow_NonNMethod_space = method->can_be_allocated_in_NonNMethod_space();
@@ -1105,7 +1126,7 @@ nmethod* nmethod::new_native_nmethod(const methodHandle& method,
             code_buffer, frame_size,
             basic_lock_owner_sp_offset,
             basic_lock_sp_offset,
-            oop_maps);
+            oop_maps, mutable_data_size);
     DEBUG_ONLY( if (allow_NonNMethod_space) assert_no_oops_or_metadata(nm); )
     NOT_PRODUCT(if (nm != nullptr) native_nmethod_stats.note_native_nmethod(nm));
   }
@@ -1144,11 +1165,6 @@ nmethod* nmethod::new_nmethod(const methodHandle& method,
   // create nmethod
   nmethod* nm = nullptr;
   int nmethod_size = CodeBlob::allocation_size(code_buffer, sizeof(nmethod));
-#if INCLUDE_JVMCI
-    if (compiler->is_jvmci()) {
-      nmethod_size += align_up(jvmci_data->size(), oopSize);
-    }
-#endif
 
   int immutable_data_size =
       adjust_pcs_size(debug_info->pcs_size())
@@ -1169,11 +1185,15 @@ nmethod* nmethod::new_nmethod(const methodHandle& method,
       return nullptr;
     }
   }
+
+  int mutable_data_size = required_mutable_data_size(code_buffer
+    JVMCI_ONLY(COMMA (compiler->is_jvmci() ? jvmci_data->size() : 0)));
+
   {
     MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
 
     nm = new (nmethod_size, comp_level)
-    nmethod(method(), compiler->type(), nmethod_size, immutable_data_size,
+    nmethod(method(), compiler->type(), nmethod_size, immutable_data_size, mutable_data_size,
             compile_id, entry_bci, immutable_data, offsets, orig_pc_offset,
             debug_info, dependencies, code_buffer, frame_size, oop_maps,
             handler_table, nul_chk_table, compiler, comp_level
@@ -1250,6 +1270,10 @@ void nmethod::init_defaults(CodeBuffer *code_buffer, CodeOffsets* offsets) {
   CHECKED_CAST(_entry_offset,              uint16_t, (offsets->value(CodeOffsets::Entry)));
   CHECKED_CAST(_verified_entry_offset,     uint16_t, (offsets->value(CodeOffsets::Verified_Entry)));
 
+  _inline_entry_point             = entry_point();
+  _verified_inline_entry_point    = verified_entry_point();
+  _verified_inline_ro_entry_point = verified_entry_point();
+
   _skipped_instructions_size = code_buffer->total_skipped_instructions_size();
 }
 
@@ -1276,9 +1300,10 @@ nmethod::nmethod(
   int frame_size,
   ByteSize basic_lock_owner_sp_offset,
   ByteSize basic_lock_sp_offset,
-  OopMapSet* oop_maps )
+  OopMapSet* oop_maps,
+  int mutable_data_size)
   : CodeBlob("native nmethod", CodeBlobKind::Nmethod, code_buffer, nmethod_size, sizeof(nmethod),
-             offsets->value(CodeOffsets::Frame_Complete), frame_size, oop_maps, false),
+             offsets->value(CodeOffsets::Frame_Complete), frame_size, oop_maps, false, mutable_data_size),
   _deoptimization_generation(0),
   _gc_epoch(CodeCache::gc_epoch()),
   _method(method),
@@ -1288,7 +1313,7 @@ nmethod::nmethod(
   {
     debug_only(NoSafepointVerifier nsv;)
     assert_locked_or_safepoint(CodeCache_lock);
-
+    assert(!method->has_scalarized_args(), "scalarized native wrappers not supported yet");
     init_defaults(code_buffer, offsets);
 
     _osr_entry_point         = nullptr;
@@ -1312,17 +1337,15 @@ nmethod::nmethod(
     _deopt_mh_handler_offset = 0;
     _unwind_handler_offset   = 0;
 
-    CHECKED_CAST(_metadata_offset, uint16_t, (align_up(code_buffer->total_oop_size(), oopSize)));
-    int data_end_offset = _metadata_offset + align_up(code_buffer->total_metadata_size(), wordSize);
-#if INCLUDE_JVMCI
-    // jvmci_data_size is 0 in native wrapper but we need to set offset
-    // to correctly calculate metadata_end address
-    CHECKED_CAST(_jvmci_data_offset, uint16_t, data_end_offset);
-#endif
-    assert((data_offset() + data_end_offset) <= nmethod_size, "wrong nmethod's size: %d < %d", nmethod_size, (data_offset() + data_end_offset));
+    CHECKED_CAST(_oops_size, uint16_t, align_up(code_buffer->total_oop_size(), oopSize));
+    int metadata_size = align_up(code_buffer->total_metadata_size(), wordSize);
+    JVMCI_ONLY( _jvmci_data_size = 0; )
+    assert(_mutable_data_size == _relocation_size + metadata_size,
+           "wrong mutable data size: %d != %d + %d",
+           _mutable_data_size, _relocation_size, metadata_size);
 
     // native wrapper does not have read-only data but we need unique not null address
-    _immutable_data          = data_end();
+    _immutable_data          = blob_end();
     _immutable_data_size     = 0;
     _nul_chk_table_offset    = 0;
     _handler_table_offset    = 0;
@@ -1399,6 +1422,7 @@ nmethod::nmethod(
   CompilerType type,
   int nmethod_size,
   int immutable_data_size,
+  int mutable_data_size,
   int compile_id,
   int entry_bci,
   address immutable_data,
@@ -1420,7 +1444,7 @@ nmethod::nmethod(
 #endif
   )
   : CodeBlob("nmethod", CodeBlobKind::Nmethod, code_buffer, nmethod_size, sizeof(nmethod),
-             offsets->value(CodeOffsets::Frame_Complete), frame_size, oop_maps, false),
+             offsets->value(CodeOffsets::Frame_Complete), frame_size, oop_maps, false, mutable_data_size),
   _deoptimization_generation(0),
   _gc_epoch(CodeCache::gc_epoch()),
   _method(method),
@@ -1486,18 +1510,19 @@ nmethod::nmethod(
     } else {
       _unwind_handler_offset = -1;
     }
-    CHECKED_CAST(_metadata_offset, uint16_t, (align_up(code_buffer->total_oop_size(), oopSize)));
-    int metadata_end_offset = _metadata_offset + align_up(code_buffer->total_metadata_size(), wordSize);
 
-#if INCLUDE_JVMCI
-    CHECKED_CAST(_jvmci_data_offset, uint16_t, metadata_end_offset);
-    int jvmci_data_size   = compiler->is_jvmci() ? jvmci_data->size() : 0;
-    DEBUG_ONLY( int data_end_offset = _jvmci_data_offset  + align_up(jvmci_data_size, oopSize); )
-#else
-    DEBUG_ONLY( int data_end_offset = metadata_end_offset; )
-#endif
-    assert((data_offset() + data_end_offset) <= nmethod_size, "wrong nmethod's size: %d > %d",
-           (data_offset() + data_end_offset), nmethod_size);
+    CHECKED_CAST(_oops_size, uint16_t, align_up(code_buffer->total_oop_size(), oopSize));
+    uint16_t metadata_size = (uint16_t)align_up(code_buffer->total_metadata_size(), wordSize);
+    JVMCI_ONLY(CHECKED_CAST(_jvmci_data_size, uint16_t, align_up(compiler->is_jvmci() ? jvmci_data->size() : 0, oopSize)));
+    int jvmci_data_size = 0 JVMCI_ONLY(+ _jvmci_data_size);
+    _inline_entry_point             = code_begin() + offsets->value(CodeOffsets::Inline_Entry);
+    _verified_inline_entry_point    = code_begin() + offsets->value(CodeOffsets::Verified_Inline_Entry);
+    _verified_inline_ro_entry_point = code_begin() + offsets->value(CodeOffsets::Verified_Inline_Entry_RO);
+    assert(_mutable_data_size == _relocation_size + metadata_size + jvmci_data_size,
+           "wrong mutable data size: %d != %d + %d + %d",
+           _mutable_data_size, _relocation_size, metadata_size, jvmci_data_size);
+    assert(nmethod_size == data_end() - header_begin(), "wrong nmethod size: %d != %d",
+           nmethod_size, (int)(code_end() - header_begin()));
 
     _immutable_data_size  = immutable_data_size;
     if (immutable_data_size > 0) {
@@ -1505,7 +1530,7 @@ nmethod::nmethod(
       _immutable_data     = immutable_data;
     } else {
       // We need unique not null address
-      _immutable_data     = data_end();
+      _immutable_data     = blob_end();
     }
     CHECKED_CAST(_nul_chk_table_offset, uint16_t, (align_up((int)dependencies->size_in_bytes(), oopSize)));
     CHECKED_CAST(_handler_table_offset, uint16_t, (_nul_chk_table_offset + align_up(nul_chk_table->size_in_bytes(), oopSize)));
@@ -1957,21 +1982,27 @@ void nmethod::invalidate_osr_method() {
   }
 }
 
-void nmethod::log_state_change() const {
+void nmethod::log_state_change(const char* reason) const {
+  assert(reason != nullptr, "Must provide a reason");
+
   if (LogCompilation) {
     if (xtty != nullptr) {
       ttyLocker ttyl;  // keep the following output all in one block
-      xtty->begin_elem("make_not_entrant thread='%zu'",
-                       os::current_thread_id());
+      xtty->begin_elem("make_not_entrant thread='%zu' reason='%s'",
+                       os::current_thread_id(), reason);
       log_identity(xtty);
       xtty->stamp();
       xtty->end_elem();
     }
   }
 
-  CompileTask::print_ul(this, "made not entrant");
+  ResourceMark rm;
+  stringStream ss(NEW_RESOURCE_ARRAY(char, 256), 256);
+  ss.print("made not entrant: %s", reason);
+
+  CompileTask::print_ul(this, ss.freeze());
   if (PrintCompilation) {
-    print_on_with_msg(tty, "made not entrant");
+    print_on_with_msg(tty, ss.freeze());
   }
 }
 
@@ -1982,7 +2013,9 @@ void nmethod::unlink_from_method() {
 }
 
 // Invalidate code
-bool nmethod::make_not_entrant() {
+bool nmethod::make_not_entrant(const char* reason) {
+  assert(reason != nullptr, "Must provide a reason");
+
   // This can be called while the system is already at a safepoint which is ok
   NoSafepointVerifier nsv;
 
@@ -2040,7 +2073,7 @@ bool nmethod::make_not_entrant() {
     assert(success, "Transition can't fail");
 
     // Log the transition once
-    log_state_change();
+    log_state_change(reason);
 
     // Remove nmethod from method.
     unlink_from_method();
@@ -2127,9 +2160,9 @@ void nmethod::purge(bool unregister_nmethod) {
   }
   delete[] _compiled_ic_data;
 
-  if (_immutable_data != data_end()) {
+  if (_immutable_data != blob_end()) {
     os::free(_immutable_data);
-    _immutable_data = data_end(); // Valid not null address
+    _immutable_data = blob_end(); // Valid not null address
   }
   if (unregister_nmethod) {
     Universe::heap()->unregister_nmethod(this);
@@ -3061,10 +3094,6 @@ void nmethod::print_on_impl(outputStream* st) const {
                                              p2i(this),
                                              p2i(this) + size(),
                                              size());
-  if (relocation_size   () > 0) st->print_cr(" relocation     [" INTPTR_FORMAT "," INTPTR_FORMAT "] = %d",
-                                             p2i(relocation_begin()),
-                                             p2i(relocation_end()),
-                                             relocation_size());
   if (consts_size       () > 0) st->print_cr(" constants      [" INTPTR_FORMAT "," INTPTR_FORMAT "] = %d",
                                              p2i(consts_begin()),
                                              p2i(consts_end()),
@@ -3081,6 +3110,14 @@ void nmethod::print_on_impl(outputStream* st) const {
                                              p2i(oops_begin()),
                                              p2i(oops_end()),
                                              oops_size());
+  if (mutable_data_size() > 0) st->print_cr(" mutable data [" INTPTR_FORMAT "," INTPTR_FORMAT "] = %d",
+                                             p2i(mutable_data_begin()),
+                                             p2i(mutable_data_end()),
+                                             mutable_data_size());
+  if (relocation_size() > 0)   st->print_cr(" relocation     [" INTPTR_FORMAT "," INTPTR_FORMAT "] = %d",
+                                             p2i(relocation_begin()),
+                                             p2i(relocation_end()),
+                                             relocation_size());
   if (metadata_size     () > 0) st->print_cr(" metadata       [" INTPTR_FORMAT "," INTPTR_FORMAT "] = %d",
                                              p2i(metadata_begin()),
                                              p2i(metadata_end()),
@@ -3683,7 +3720,10 @@ const char* nmethod::nmethod_section_label(address pos) const {
   const char* label = nullptr;
   if (pos == code_begin())                                              label = "[Instructions begin]";
   if (pos == entry_point())                                             label = "[Entry Point]";
+  if (pos == inline_entry_point())                                      label = "[Inline Entry Point]";
   if (pos == verified_entry_point())                                    label = "[Verified Entry Point]";
+  if (pos == verified_inline_entry_point())                             label = "[Verified Inline Entry Point]";
+  if (pos == verified_inline_ro_entry_point())                          label = "[Verified Inline Entry Point (RO)]";
   if (has_method_handle_invokes() && (pos == deopt_mh_handler_begin())) label = "[Deopt MH Handler Code]";
   if (pos == consts_begin() && pos != insts_begin())                    label = "[Constants]";
   // Check stub_code before checking exception_handler or deopt_handler.
@@ -3693,105 +3733,135 @@ const char* nmethod::nmethod_section_label(address pos) const {
   return label;
 }
 
+static int maybe_print_entry_label(outputStream* stream, address pos, address entry, const char* label) {
+  if (pos == entry) {
+    stream->bol();
+    stream->print_cr("%s", label);
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 void nmethod::print_nmethod_labels(outputStream* stream, address block_begin, bool print_section_labels) const {
   if (print_section_labels) {
-    const char* label = nmethod_section_label(block_begin);
-    if (label != nullptr) {
-      stream->bol();
-      stream->print_cr("%s", label);
+    int n = 0;
+    // Multiple entry points may be at the same position. Print them all.
+    n += maybe_print_entry_label(stream, block_begin, entry_point(),                    "[Entry Point]");
+    n += maybe_print_entry_label(stream, block_begin, inline_entry_point(),             "[Inline Entry Point]");
+    n += maybe_print_entry_label(stream, block_begin, verified_entry_point(),           "[Verified Entry Point]");
+    n += maybe_print_entry_label(stream, block_begin, verified_inline_entry_point(),    "[Verified Inline Entry Point]");
+    n += maybe_print_entry_label(stream, block_begin, verified_inline_ro_entry_point(), "[Verified Inline Entry Point (RO)]");
+    if (n == 0) {
+      const char* label = nmethod_section_label(block_begin);
+      if (label != nullptr) {
+        stream->bol();
+        stream->print_cr("%s", label);
+      }
     }
   }
 
-  if (block_begin == entry_point()) {
-    Method* m = method();
-    if (m != nullptr) {
-      stream->print("  # ");
-      m->print_value_on(stream);
-      stream->cr();
+  Method* m = method();
+  if (m == nullptr || is_osr_method()) {
+    return;
+  }
+
+  // Print the name of the method (only once)
+  address low = MIN4(entry_point(), verified_entry_point(), verified_inline_entry_point(), verified_inline_ro_entry_point());
+  low = MIN2(low, inline_entry_point());
+  assert(low != 0, "sanity");
+  if (block_begin == low) {
+    stream->print("  # ");
+    m->print_value_on(stream);
+    stream->cr();
+  }
+
+  // Print the arguments for the 3 types of verified entry points
+  CompiledEntrySignature ces(m);
+  ces.compute_calling_conventions(false);
+  const GrowableArray<SigEntry>* sig_cc;
+  const VMRegPair* regs;
+  if (block_begin == verified_entry_point()) {
+    sig_cc = ces.sig_cc();
+    regs = ces.regs_cc();
+  } else if (block_begin == verified_inline_entry_point()) {
+    sig_cc = ces.sig();
+    regs = ces.regs();
+  } else if (block_begin == verified_inline_ro_entry_point()) {
+    sig_cc = ces.sig_cc_ro();
+    regs = ces.regs_cc_ro();
+  } else {
+    return;
+  }
+
+  bool has_this = !m->is_static();
+  if (ces.has_inline_recv() && block_begin == verified_entry_point()) {
+    // <this> argument is scalarized for verified_entry_point()
+    has_this = false;
+  }
+  const char* spname = "sp"; // make arch-specific?
+  int stack_slot_offset = this->frame_size() * wordSize;
+  int tab1 = 14, tab2 = 24;
+  int sig_index = 0;
+  int arg_index = has_this ? -1 : 0;
+  bool did_old_sp = false;
+  for (ExtendedSignature sig = ExtendedSignature(sig_cc, SigEntryFilter()); !sig.at_end(); ++sig) {
+    bool at_this = (arg_index == -1);
+    bool at_old_sp = false;
+    BasicType t = (*sig)._bt;
+    if (at_this) {
+      stream->print("  # this: ");
+    } else {
+      stream->print("  # parm%d: ", arg_index);
     }
-    if (m != nullptr && !is_osr_method()) {
-      ResourceMark rm;
-      int sizeargs = m->size_of_parameters();
-      BasicType* sig_bt = NEW_RESOURCE_ARRAY(BasicType, sizeargs);
-      VMRegPair* regs   = NEW_RESOURCE_ARRAY(VMRegPair, sizeargs);
-      {
-        int sig_index = 0;
-        if (!m->is_static())
-          sig_bt[sig_index++] = T_OBJECT; // 'this'
-        for (SignatureStream ss(m->signature()); !ss.at_return_type(); ss.next()) {
-          BasicType t = ss.type();
-          sig_bt[sig_index++] = t;
-          if (type2size[t] == 2) {
-            sig_bt[sig_index++] = T_VOID;
-          } else {
-            assert(type2size[t] == 1, "size is 1 or 2");
-          }
-        }
-        assert(sig_index == sizeargs, "");
+    stream->move_to(tab1);
+    VMReg fst = regs[sig_index].first();
+    VMReg snd = regs[sig_index].second();
+    if (fst->is_reg()) {
+      stream->print("%s", fst->name());
+      if (snd->is_valid())  {
+        stream->print(":%s", snd->name());
       }
-      const char* spname = "sp"; // make arch-specific?
-      SharedRuntime::java_calling_convention(sig_bt, regs, sizeargs);
-      int stack_slot_offset = this->frame_size() * wordSize;
-      int tab1 = 14, tab2 = 24;
-      int sig_index = 0;
-      int arg_index = (m->is_static() ? 0 : -1);
-      bool did_old_sp = false;
-      for (SignatureStream ss(m->signature()); !ss.at_return_type(); ) {
-        bool at_this = (arg_index == -1);
-        bool at_old_sp = false;
-        BasicType t = (at_this ? T_OBJECT : ss.type());
-        assert(t == sig_bt[sig_index], "sigs in sync");
-        if (at_this)
-          stream->print("  # this: ");
-        else
-          stream->print("  # parm%d: ", arg_index);
-        stream->move_to(tab1);
-        VMReg fst = regs[sig_index].first();
-        VMReg snd = regs[sig_index].second();
-        if (fst->is_reg()) {
-          stream->print("%s", fst->name());
-          if (snd->is_valid())  {
-            stream->print(":%s", snd->name());
-          }
-        } else if (fst->is_stack()) {
-          int offset = fst->reg2stack() * VMRegImpl::stack_slot_size + stack_slot_offset;
-          if (offset == stack_slot_offset)  at_old_sp = true;
-          stream->print("[%s+0x%x]", spname, offset);
-        } else {
-          stream->print("reg%d:%d??", (int)(intptr_t)fst, (int)(intptr_t)snd);
-        }
-        stream->print(" ");
-        stream->move_to(tab2);
-        stream->print("= ");
-        if (at_this) {
-          m->method_holder()->print_value_on(stream);
-        } else {
-          bool did_name = false;
-          if (!at_this && ss.is_reference()) {
-            Symbol* name = ss.as_symbol();
-            name->print_value_on(stream);
-            did_name = true;
-          }
-          if (!did_name)
-            stream->print("%s", type2name(t));
-        }
-        if (at_old_sp) {
-          stream->print("  (%s of caller)", spname);
-          did_old_sp = true;
-        }
-        stream->cr();
-        sig_index += type2size[t];
-        arg_index += 1;
-        if (!at_this)  ss.next();
+    } else if (fst->is_stack()) {
+      int offset = fst->reg2stack() * VMRegImpl::stack_slot_size + stack_slot_offset;
+      if (offset == stack_slot_offset)  at_old_sp = true;
+      stream->print("[%s+0x%x]", spname, offset);
+    } else {
+      stream->print("reg%d:%d??", (int)(intptr_t)fst, (int)(intptr_t)snd);
+    }
+    stream->print(" ");
+    stream->move_to(tab2);
+    stream->print("= ");
+    if (at_this) {
+      m->method_holder()->print_value_on(stream);
+    } else {
+      bool did_name = false;
+      if (is_reference_type(t)) {
+        Symbol* name = (*sig)._symbol;
+        name->print_value_on(stream);
+        did_name = true;
       }
-      if (!did_old_sp) {
-        stream->print("  # ");
-        stream->move_to(tab1);
-        stream->print("[%s+0x%x]", spname, stack_slot_offset);
-        stream->print("  (%s of caller)", spname);
-        stream->cr();
+      if (!did_name)
+        stream->print("%s", type2name(t));
+      // If the entry has a non-default sort_offset, it must be a null marker
+      if ((*sig)._sort_offset != (*sig)._offset) {
+        stream->print(" (null marker)");
       }
     }
+    if (at_old_sp) {
+      stream->print("  (%s of caller)", spname);
+      did_old_sp = true;
+    }
+    stream->cr();
+    sig_index += type2size[t];
+    arg_index += 1;
+  }
+  if (!did_old_sp) {
+    stream->print("  # ");
+    stream->move_to(tab1);
+    stream->print("[%s+0x%x]", spname, stack_slot_offset);
+    stream->print("  (%s of caller)", spname);
+    stream->cr();
   }
 }
 
@@ -3915,7 +3985,7 @@ void nmethod::print_code_comment_on(outputStream* st, int column, address begin,
           break;
         }
       }
-      st->print(" {reexecute=%d rethrow=%d return_oop=%d}", sd->should_reexecute(), sd->rethrow_exception(), sd->return_oop());
+      st->print(" {reexecute=%d rethrow=%d return_oop=%d return_scalarized=%d}", sd->should_reexecute(), sd->rethrow_exception(), sd->return_oop(), sd->return_scalarized());
     }
 
     // Print all scopes

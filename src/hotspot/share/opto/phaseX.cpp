@@ -1135,7 +1135,7 @@ bool PhaseIterGVN::verify_node_value(Node* n) {
   }
   tty->cr();
   tty->print_cr("Missed Value optimization:");
-  n->dump_bfs(1, nullptr, "");
+  n->dump_bfs(3, nullptr, "");
   tty->print_cr("Current type:");
   told->dump_on(tty);
   tty->cr();
@@ -1160,16 +1160,16 @@ Node* PhaseIterGVN::register_new_node_with_optimizer(Node* n, Node* orig) {
 //------------------------------transform--------------------------------------
 // Non-recursive: idealize Node 'n' with respect to its inputs and its value
 Node *PhaseIterGVN::transform( Node *n ) {
-  if (_delay_transform) {
-    // Register the node but don't optimize for now
-    register_new_node_with_optimizer(n);
-    return n;
-  }
-
   // If brand new node, make space in type array, and give it a type.
   ensure_type_or_null(n);
   if (type_or_null(n) == nullptr) {
     set_type_bottom(n);
+  }
+
+  if (_delay_transform) {
+    // Add the node to the worklist but don't optimize for now
+    _worklist.push(n);
+    return n;
   }
 
   return transform_old(n);
@@ -1444,6 +1444,19 @@ void PhaseIterGVN::subsume_node( Node *old, Node *nn ) {
   temp->destruct(this);     // reuse the _idx of this little guy
 }
 
+void PhaseIterGVN::replace_in_uses(Node* n, Node* m) {
+  assert(n != nullptr, "sanity");
+  for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+    Node* u = n->fast_out(i);
+    if (u != n) {
+      rehash_node_delayed(u);
+      int nb = u->replace_edge(n, m);
+      --i, imax -= nb;
+    }
+  }
+  assert(n->outcnt() == 0, "all uses must be deleted");
+}
+
 //------------------------------add_users_to_worklist--------------------------
 void PhaseIterGVN::add_users_to_worklist0(Node* n, Unique_Node_List& worklist) {
   for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
@@ -1496,6 +1509,16 @@ void PhaseIterGVN::add_users_of_use_to_worklist(Node* n, Node* use, Unique_Node_
     Node* p = use->as_CallDynamicJava()->proj_out_or_null(TypeFunc::Control);
     if (p != nullptr) {
       add_users_to_worklist0(p, worklist);
+    }
+  }
+
+  // AndLNode::Ideal folds GraphKit::mark_word_test patterns. Give it a chance to run.
+  if (n->is_Load() && use->is_Phi()) {
+    for (DUIterator_Fast imax, i = use->fast_outs(imax); i < imax; i++) {
+      Node* u = use->fast_out(i);
+      if (u->Opcode() == Op_AndL) {
+        worklist.push(u);
+      }
     }
   }
 
@@ -1596,6 +1619,15 @@ void PhaseIterGVN::add_users_of_use_to_worklist(Node* n, Node* use, Unique_Node_
     }
   }
 
+  // Inline type nodes can have other inline types as users. If an input gets
+  // updated, make sure that inline type users get a chance for optimization.
+  if (use->is_InlineType()) {
+    for (DUIterator_Fast i2max, i2 = use->fast_outs(i2max); i2 < i2max; i2++) {
+      Node* u = use->fast_out(i2);
+      if (u->is_InlineType())
+        worklist.push(u);
+    }
+  }
   // If changed Cast input, notify down for Phi, Sub, and Xor - all do "uncast"
   // Patterns:
   // ConstraintCast+ -> Sub
@@ -1611,10 +1643,10 @@ void PhaseIterGVN::add_users_of_use_to_worklist(Node* n, Node* use, Unique_Node_
     use->visit_uses(push_the_uses_to_worklist, is_boundary);
   }
   // If changed LShift inputs, check RShift users for useless sign-ext
-  if( use_op == Op_LShiftI ) {
+  if (use_op == Op_LShiftI || use_op == Op_LShiftL) {
     for (DUIterator_Fast i2max, i2 = use->fast_outs(i2max); i2 < i2max; i2++) {
       Node* u = use->fast_out(i2);
-      if (u->Opcode() == Op_RShiftI)
+      if (u->Opcode() == Op_RShiftI || u->Opcode() == Op_RShiftL)
         worklist.push(u);
     }
   }
@@ -1679,6 +1711,14 @@ void PhaseIterGVN::add_users_of_use_to_worklist(Node* n, Node* use, Unique_Node_
   BarrierSetC2* bs = BarrierSet::barrier_set()->barrier_set_c2();
   bool has_load_barrier_nodes = bs->has_load_barrier_nodes();
 
+  if (use_op == Op_CastP2X) {
+    for (DUIterator_Fast i2max, i2 = use->fast_outs(i2max); i2 < i2max; i2++) {
+      Node* u = use->fast_out(i2);
+      if (u->Opcode() == Op_AndX) {
+        worklist.push(u);
+      }
+    }
+  }
   if (use_op == Op_LoadP && use->bottom_type()->isa_rawptr()) {
     for (DUIterator_Fast i2max, i2 = use->fast_outs(i2max); i2 < i2max; i2++) {
       Node* u = use->fast_out(i2);
@@ -1695,6 +1735,16 @@ void PhaseIterGVN::add_users_of_use_to_worklist(Node* n, Node* use, Unique_Node_
         }
         worklist.push(u);
       }
+    }
+  }
+  // Give CallStaticJavaNode::remove_useless_allocation a chance to run
+  if (use->is_Region()) {
+    Node* c = use;
+    do {
+      c = c->unique_ctrl_out_or_null();
+    } while (c != nullptr && c->is_Region());
+    if (c != nullptr && c->is_CallStaticJava() && c->as_CallStaticJava()->uncommon_trap_request() != 0) {
+      worklist.push(c);
     }
   }
   if (use->Opcode() == Op_OpaqueZeroTripGuard) {
@@ -1784,7 +1834,7 @@ PhaseCCP::~PhaseCCP() {
 #ifdef ASSERT
 void PhaseCCP::verify_type(Node* n, const Type* tnew, const Type* told) {
   if (tnew->meet(told) != tnew->remove_speculative()) {
-    n->dump(1);
+    n->dump(3);
     tty->print("told = "); told->dump(); tty->cr();
     tty->print("tnew = "); tnew->dump(); tty->cr();
     fatal("Not monotonic");
@@ -1901,6 +1951,7 @@ void PhaseCCP::push_more_uses(Unique_Node_List& worklist, Node* parent, const No
   push_catch(worklist, use);
   push_cmpu(worklist, use);
   push_counted_loop_phi(worklist, parent, use);
+  push_cast(worklist, use);
   push_loadp(worklist, use);
   push_and(worklist, parent, use);
   push_cast_ii(worklist, parent, use);
@@ -1959,6 +2010,18 @@ void PhaseCCP::push_counted_loop_phi(Unique_Node_List& worklist, Node* parent, c
     PhiNode* phi = countedloop_phi_from_cmp(use->as_Cmp(), parent);
     if (phi != nullptr) {
       worklist.push(phi);
+    }
+  }
+}
+
+void PhaseCCP::push_cast(Unique_Node_List& worklist, const Node* use) {
+  uint use_op = use->Opcode();
+  if (use_op == Op_CastP2X) {
+    for (DUIterator_Fast i2max, i2 = use->fast_outs(i2max); i2 < i2max; i2++) {
+      Node* u = use->fast_out(i2);
+      if (u->Opcode() == Op_AndX) {
+        worklist.push(u);
+      }
     }
   }
 }
@@ -2110,7 +2173,7 @@ Node *PhaseCCP::transform( Node *n ) {
   C->update_dead_node_list(useful);
   remove_useless_nodes(useful.member_set());
   _worklist.remove_useless_nodes(useful.member_set());
-  C->disconnect_useless_nodes(useful, _worklist);
+  C->disconnect_useless_nodes(useful, _worklist, &_root_and_safepoints);
 
   Node* new_root = node_map[n->_idx];
   assert(new_root->is_Root(), "transformed root node must be a root node");

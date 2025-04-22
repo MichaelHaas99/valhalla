@@ -25,8 +25,10 @@
 
 package java.util;
 
+import jdk.internal.javac.PreviewFeature;
 import jdk.internal.util.Preconditions;
 import jdk.internal.vm.annotation.ForceInline;
+import jdk.internal.misc.Unsafe;
 
 import java.util.function.Supplier;
 
@@ -175,6 +177,84 @@ public final class Objects {
     public static String toIdentityString(Object o) {
         requireNonNull(o);
         return o.getClass().getName() + "@" + Integer.toHexString(System.identityHashCode(o));
+    }
+
+   /**
+    * {@return {@code true} if the specified object reference is an identity object,
+    * otherwise {@code false}}
+    *
+    * @param obj an object
+    * @throws NullPointerException if {@code obj} is {@code null}
+    * @since Valhalla
+    */
+   @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS)
+//    @IntrinsicCandidate
+    public static boolean hasIdentity(Object obj) {
+        requireNonNull(obj);
+        return obj.getClass().isIdentity() ||  // Before Valhalla all classes are identity classes
+                obj.getClass() == Object.class;
+    }
+
+    /**
+     * Checks that the specified object reference is an identity object.
+     *
+     * @param obj the object reference to check for identity
+     * @param <T> the type of the reference
+     * @return {@code obj} if {@code obj} is an identity object
+     * @throws NullPointerException if {@code obj} is {@code null}
+     * @throws IdentityException if {@code obj} is not an identity object
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS)
+    @ForceInline
+    public static <T> T requireIdentity(T obj) {
+        Objects.requireNonNull(obj);
+        if (!hasIdentity(obj))
+            throw new IdentityException(obj.getClass());
+        return obj;
+    }
+
+    /**
+     * Checks that the specified object reference is an identity object.
+     *
+     * @param obj the object reference to check for identity
+     * @param message detail message to be used in the event that an
+     *        {@code IdentityException} is thrown; may be null
+     * @param <T> the type of the reference
+     * @return {@code obj} if {@code obj} is an identity object
+     * @throws NullPointerException if {@code obj} is {@code null}
+     * @throws IdentityException if {@code obj} is not an identity object
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS)
+    @ForceInline
+    public static <T> T requireIdentity(T obj, String message) {
+        Objects.requireNonNull(obj);
+        if (!hasIdentity(obj))
+            throw new IdentityException(message);
+        return obj;
+    }
+
+    /**
+     * Checks that the specified object reference is an identity object.
+     *
+     * @param obj the object reference to check for identity
+     * @param messageSupplier supplier of the detail message to be
+     *        used in the event that an {@code IdentityException} is thrown; may be null
+     * @param <T> the type of the reference
+     * @return {@code obj} if {@code obj} is an identity object
+     * @throws NullPointerException if {@code obj} is {@code null}
+     * @throws IdentityException if {@code obj} is not an identity object
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS)
+    @ForceInline
+    public static <T> T requireIdentity(T obj, Supplier<String> messageSupplier) {
+        Objects.requireNonNull(obj);
+        if (!hasIdentity(obj))
+            throw new IdentityException(messageSupplier == null ?
+                    null : messageSupplier.get());
+        return obj;
     }
 
     /**

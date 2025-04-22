@@ -24,6 +24,7 @@
 #ifndef SHARE_GC_Z_ZBARRIERSET_INLINE_HPP
 #define SHARE_GC_Z_ZBARRIERSET_INLINE_HPP
 
+#include "gc/z/zAddress.hpp"
 #include "gc/z/zBarrierSet.hpp"
 
 #include "gc/shared/accessBarrierSupport.inline.hpp"
@@ -32,6 +33,7 @@
 #include "gc/z/zIterator.inline.hpp"
 #include "gc/z/zNMethod.hpp"
 #include "memory/iterator.inline.hpp"
+#include "oops/inlineKlass.inline.hpp"
 #include "utilities/debug.hpp"
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -329,78 +331,99 @@ inline zaddress ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_copy_on
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
-inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_copy_one(zpointer* dst, zpointer* src) {
+inline ZBarrierSet::OopCopyCheckStatus ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_copy_one(zpointer* dst, zpointer* src) {
   const zaddress obj = oop_copy_one_barriers(dst, src);
 
+  if (HasDecorator<decorators, ARRAYCOPY_NOTNULL>::value && is_null(obj)) {
+    return oop_copy_check_null;
+  }
+
   Atomic::store(dst, ZAddress::store_good(obj));
+  return oop_copy_check_ok;
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
-inline bool ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_copy_one_check_cast(zpointer* dst, zpointer* src, Klass* dst_klass) {
+inline ZBarrierSet::OopCopyCheckStatus ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_copy_one_check_cast(zpointer* dst, zpointer* src, Klass* dst_klass) {
   const zaddress obj = oop_copy_one_barriers(dst, src);
+  const bool null_check = HasDecorator<decorators, ARRAYCOPY_NOTNULL>::value;
 
-  if (!oopDesc::is_instanceof_or_null(to_oop(obj), dst_klass)) {
+  if (null_check && is_null(obj)) {
+    return oop_copy_check_null;
+  }
+  else if (!oopDesc::is_instanceof_or_null(to_oop(obj), dst_klass)) {
     // Check cast failed
-    return false;
+    return oop_copy_check_class_cast;
   }
 
   Atomic::store(dst, ZAddress::store_good(obj));
 
-  return true;
+  return oop_copy_check_ok;
 }
 
 
 template <DecoratorSet decorators, typename BarrierSetT>
-inline bool ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap_check_cast(zpointer* dst, zpointer* src, size_t length, Klass* dst_klass) {
+inline ZBarrierSet::OopCopyCheckStatus ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap_check_cast(zpointer* dst, zpointer* src, size_t length, Klass* dst_klass) {
   // Check cast and copy each elements
-  for (const zpointer* const end = src + length; src < end; src++, dst++) {
-    if (!oop_copy_one_check_cast(dst, src, dst_klass)) {
-      // Check cast failed
-      return false;
-    }
+  OopCopyCheckStatus check_status = oop_copy_check_ok;
+  for (const zpointer* const end = src + length; (check_status == oop_copy_check_ok) && (src < end); src++, dst++) {
+    check_status = oop_copy_one_check_cast(dst, src, dst_klass);
   }
-
-  return true;
+  return check_status;
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
-inline bool ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap_no_check_cast(zpointer* dst, zpointer* src, size_t length) {
+inline ZBarrierSet::OopCopyCheckStatus ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap_no_check_cast(zpointer* dst, zpointer* src, size_t length) {
   const bool is_disjoint = HasDecorator<decorators, ARRAYCOPY_DISJOINT>::value;
-
+  OopCopyCheckStatus check_status = oop_copy_check_ok;
   if (is_disjoint || src > dst) {
-    for (const zpointer* const end = src + length; src < end; src++, dst++) {
-      oop_copy_one(dst, src);
+    for (const zpointer* const end = src + length; (check_status == oop_copy_check_ok) && (src < end); src++, dst++) {
+      check_status = oop_copy_one(dst, src);
     }
-    return true;
+    return check_status;
   }
 
   if (src < dst) {
     const zpointer* const end = src;
     src += length - 1;
     dst += length - 1;
-    for ( ; src >= end; src--, dst--) {
-      oop_copy_one(dst, src);
+    for ( ; (check_status == oop_copy_check_ok) && (src >= end); src--, dst--) {
+      check_status = oop_copy_one(dst, src);
     }
-    return true;
+    return check_status;
   }
 
   // src and dst are the same; nothing to do
-  return true;
+  return check_status;
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
-inline bool ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, zpointer* src_raw,
+inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, zpointer* src_raw,
                                                                                        arrayOop dst_obj, size_t dst_offset_in_bytes, zpointer* dst_raw,
                                                                                        size_t length) {
   zpointer* const src = arrayOopDesc::obj_offset_to_raw(src_obj, src_offset_in_bytes, src_raw);
   zpointer* const dst = arrayOopDesc::obj_offset_to_raw(dst_obj, dst_offset_in_bytes, dst_raw);
+  OopCopyCheckStatus check_status;
 
   if (HasDecorator<decorators, ARRAYCOPY_CHECKCAST>::value) {
     Klass* const dst_klass = objArrayOop(dst_obj)->element_klass();
-    return oop_arraycopy_in_heap_check_cast(dst, src, length, dst_klass);
+    check_status = oop_arraycopy_in_heap_check_cast(dst, src, length, dst_klass);
+  } else {
+    check_status = oop_arraycopy_in_heap_no_check_cast(dst, src, length);
   }
 
-  return oop_arraycopy_in_heap_no_check_cast(dst, src, length);
+  switch (check_status) {
+  case oop_copy_check_ok:
+    return;
+  case oop_copy_check_class_cast:
+    throw_array_store_exception(src_obj, dst_obj, JavaThread::current());
+    break;
+  case oop_copy_check_null:
+    throw_array_null_pointer_store_exception(src_obj, dst_obj, JavaThread::current());
+    break;
+  default:
+    ShouldNotReachHere();
+    return;
+  }
 }
 
 class ZColorStoreGoodOopClosure : public BasicOopIterateClosure {
@@ -455,6 +478,55 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::clone_in_heap(o
   // Color store good before handing out
   ZColorStoreGoodOopClosure cl_sg;
   ZIterator::oop_iterate(dst, &cl_sg);
+}
+
+static inline void copy_primitive_payload(const void* src, const void* dst, const size_t payload_size_bytes, size_t& copied_bytes) {
+  if (payload_size_bytes == 0) {
+    return;
+  }
+  void* src_payload = (void*)(address(src) + copied_bytes);
+  void* dst_payload = (void*)(address(dst) + copied_bytes);
+  Copy::copy_value_content(src_payload, dst_payload, payload_size_bytes);
+  copied_bytes += payload_size_bytes;
+}
+
+template <DecoratorSet decorators, typename BarrierSetT>
+inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::value_copy_in_heap(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+  if (md->contains_oops()) {
+    // Iterate over each oop map, performing:
+    //   1) possibly raw copy for any primitive payload before each map
+    //   2) load and store barrier for each oop
+    //   3) possibly raw copy for any primitive payload trailer
+
+    // src/dst may not be oops, need offset to adjust oop map offset
+    const address src_oop_addr_offset = ((address) src) - md->payload_offset();
+    OopMapBlock* map = md->start_of_nonstatic_oop_maps();
+    const OopMapBlock* const end = map + md->nonstatic_oop_map_count();
+    size_t size_in_bytes = md->layout_size_in_bytes(lk);
+    size_t copied_bytes = 0;
+    while (map != end) {
+      zpointer *src_p = (zpointer*)(src_oop_addr_offset + map->offset());
+      const uintptr_t oop_offset = uintptr_t(src_p) - uintptr_t(src);
+      zpointer *dst_p = (zpointer*)(uintptr_t(dst) + oop_offset);
+
+      // Copy any leading primitive payload before every cluster of oops
+      assert(copied_bytes < oop_offset || copied_bytes == oop_offset, "Negative sized leading payload segment");
+      copy_primitive_payload(src, dst, oop_offset - copied_bytes, copied_bytes);
+
+      // Copy a cluster of oops
+      for (const zpointer* const src_end = src_p + map->count(); src_p < src_end; src_p++, dst_p++) {
+        oop_copy_one(dst_p, src_p);
+        copied_bytes += sizeof(zpointer);
+      }
+      map++;
+    }
+
+    // Copy trailing primitive payload after potential oops
+    assert(copied_bytes < size_in_bytes || copied_bytes == size_in_bytes, "Negative sized trailing payload segment");
+    copy_primitive_payload(src, dst, size_in_bytes - copied_bytes, copied_bytes);
+  } else {
+    Raw::value_copy_in_heap(src, dst, md, lk);
+  }
 }
 
 //

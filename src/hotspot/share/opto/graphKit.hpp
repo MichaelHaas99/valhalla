@@ -33,6 +33,7 @@
 #include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/divnode.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/phaseX.hpp"
 #include "opto/subnode.hpp"
@@ -66,6 +67,9 @@ class GraphKit : public Phase {
   int               _bci;       // JVM Bytecode Pointer
   ciMethod*         _method;    // JVM Current Method
   BarrierSetC2*     _barrier_set;
+#ifdef ASSERT
+  uint              _worklist_size;
+#endif
 
  private:
   int               _sp;        // JVM Expression Stack Pointer; don't modify directly!
@@ -78,12 +82,19 @@ class GraphKit : public Phase {
 
  public:
   GraphKit();                   // empty constructor
-  GraphKit(JVMState* jvms);     // the JVM state on which to operate
+  GraphKit(JVMState* jvms, PhaseGVN* gvn = nullptr);     // the JVM state on which to operate
 
 #ifdef ASSERT
   ~GraphKit() {
     assert(failing_internal() || !has_exceptions(),
            "unless compilation failed, user must call transfer_exceptions_into_jvms");
+#if 0
+    // During incremental inlining, the Node_Array of the C->for_igvn() worklist and the IGVN
+    // worklist are shared but the _in_worklist VectorSet is not. To avoid inconsistencies,
+    // we should not add nodes to the _for_igvn worklist when using IGVN for the GraphKit.
+    assert((_gvn.is_IterGVN() == nullptr) || (_gvn.C->for_igvn()->size() == _worklist_size),
+           "GraphKit should not modify _for_igvn worklist after parsing");
+#endif
   }
 #endif
 
@@ -94,7 +105,7 @@ class GraphKit : public Phase {
   PhaseGVN&     gvn()               const { return _gvn; }
   void*         barrier_set_state() const { return C->barrier_set_state(); }
 
-  void record_for_igvn(Node* n) const { C->record_for_igvn(n); }  // delegate to Compile
+  void record_for_igvn(Node* n) const { _gvn.record_for_igvn(n); }
   void remove_for_igvn(Node* n) const { C->remove_for_igvn(n); }
 
   // Handy well-known nodes:
@@ -362,12 +373,12 @@ class GraphKit : public Phase {
   Node* null_check_common(Node* value, BasicType type,
                           bool assert_null = false,
                           Node* *null_control = nullptr,
-                          bool speculative = false);
+                          bool speculative = false,
+                          bool is_init_check = false);
   Node* null_check(Node* value, BasicType type = T_OBJECT) {
     return null_check_common(value, type, false, nullptr, !_gvn.type(value)->speculative_maybe_null());
   }
   Node* null_check_receiver() {
-    assert(argument(0)->bottom_type()->isa_ptr(), "must be");
     return null_check(argument(0));
   }
   Node* zero_check_int(Node* value) {
@@ -569,14 +580,17 @@ class GraphKit : public Phase {
                         Node* val,
                         const Type* val_type,
                         BasicType bt,
-                        DecoratorSet decorators);
+                        DecoratorSet decorators,
+                        bool safe_for_replace = true,
+                        const InlineTypeNode* vt = nullptr);
 
   Node* access_load_at(Node* obj,   // containing obj
                        Node* adr,   // actual address to load val at
                        const TypePtr* adr_type,
                        const Type* val_type,
                        BasicType bt,
-                       DecoratorSet decorators);
+                       DecoratorSet decorators,
+                       Node* ctl = nullptr);
 
   Node* access_load(Node* adr,   // actual address to load val at
                     const Type* val_type,
@@ -629,6 +643,8 @@ class GraphKit : public Phase {
                               const TypeInt* sizetype = nullptr,
                               // Optional control dependency (for example, on range check)
                               Node* ctrl = nullptr);
+  Node* flat_array_element_address(Node*& array, Node* idx, ciInlineKlass* vk, bool is_null_free,
+                                   bool is_not_null_free, bool is_atomic);
 
   // Return a load of array element at idx.
   Node* load_array_element(Node* ary, Node* idx, const TypeAryPtr* arytype, bool set_ctrl);
@@ -668,7 +684,7 @@ class GraphKit : public Phase {
 
   // Fill in argument edges for the call from argument(0), argument(1), ...
   // (The next step is to call set_edges_for_java_call.)
-  void  set_arguments_for_java_call(CallJavaNode* call);
+  void  set_arguments_for_java_call(CallJavaNode* call, bool is_late_inline = false);
 
   // Fill in non-argument edges for the call.
   // Transform the call, and update the basics: control, i_o, memory.
@@ -752,15 +768,6 @@ class GraphKit : public Phase {
   void final_sync(IdealKit& ideal);
 
   public:
-  // Helper function to round double arguments before a call
-  void round_double_arguments(ciMethod* dest_method);
-
-  // rounding for strict float precision conformance
-  Node* precision_rounding(Node* n);
-
-  // rounding for strict double precision conformance
-  Node* dprecision_rounding(Node* n);
-
   // Helper functions for fast/slow path codes
   Node* opt_iff(Node* region, Node* iff);
   Node* make_runtime_call(int flags,
@@ -807,8 +814,15 @@ class GraphKit : public Phase {
 
   // Generate a check-cast idiom.  Used by both the check-cast bytecode
   // and the array-store bytecode
-  Node* gen_checkcast( Node *subobj, Node* superkls,
-                       Node* *failure_control = nullptr );
+  Node* gen_checkcast(Node *subobj, Node* superkls, Node* *failure_control = nullptr, bool null_free = false);
+
+  // Inline types
+  Node* mark_word_test(Node* obj, uintptr_t mask_val, bool eq, bool check_lock = true);
+  Node* inline_type_test(Node* obj, bool is_inline = true);
+  Node* flat_array_test(Node* array_or_klass, bool flat = true);
+  Node* null_free_array_test(Node* array, bool null_free = true);
+  Node* null_free_atomic_array_test(Node* array, ciInlineKlass* vk);
+  Node* inline_array_null_guard(Node* ary, Node* val, int nargs, bool safe_for_replace = false);
 
   Node* gen_subtype_check(Node* obj, Node* superklass);
 
@@ -817,6 +831,7 @@ class GraphKit : public Phase {
   // (Caller is responsible for doing replace_in_map.)
   Node* type_check_receiver(Node* receiver, ciKlass* klass, float prob,
                             Node* *casted_receiver);
+  Node* type_check(Node* recv_klass, const TypeKlassPtr* tklass, float prob);
 
   // Inexact type check used for predicted calls.
   Node* subtype_check_receiver(Node* receiver, ciKlass* klass,
@@ -830,10 +845,12 @@ class GraphKit : public Phase {
   Node* new_instance(Node* klass_node,
                      Node* slow_test = nullptr,
                      Node* *return_size_val = nullptr,
-                     bool deoptimize_on_exception = false);
+                     bool deoptimize_on_exception = false,
+                     InlineTypeNode* inline_type_node = nullptr);
   Node* new_array(Node* klass_node, Node* count_val, int nargs,
                   Node* *return_size_val = nullptr,
-                  bool deoptimize_on_exception = false);
+                  bool deoptimize_on_exception = false,
+                  Node* init_val = nullptr);
 
   // java.lang.String helpers
   Node* load_String_length(Node* str, bool set_ctrl);
@@ -867,6 +884,7 @@ class GraphKit : public Phase {
   void add_parse_predicate(Deoptimization::DeoptReason reason, int nargs);
 
   Node* make_constant_from_field(ciField* field, Node* obj);
+  Node* load_mirror_from_klass(Node* klass);
 
   // Vector API support (implemented in vectorIntrinsics.cpp)
   Node* box_vector(Node* in, const TypeInstPtr* vbox_type, BasicType elem_bt, int num_elem, bool deoptimize_on_exception = false);

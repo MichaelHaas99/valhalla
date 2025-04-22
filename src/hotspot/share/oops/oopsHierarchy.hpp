@@ -47,6 +47,7 @@ typedef class     stackChunkOopDesc*          stackChunkOop;
 typedef class   arrayOopDesc*               arrayOop;
 typedef class     objArrayOopDesc*            objArrayOop;
 typedef class     typeArrayOopDesc*           typeArrayOop;
+typedef class     flatArrayOopDesc*           flatArrayOop;
 
 #else
 
@@ -155,6 +156,7 @@ DEF_OOP(stackChunk);
 DEF_OOP(array);
 DEF_OOP(objArray);
 DEF_OOP(typeArray);
+DEF_OOP(flatArray);
 
 #endif // CHECK_UNHANDLED_OOPS
 
@@ -184,6 +186,7 @@ class   ConstantPool;
 
 class Klass;
 class   InstanceKlass;
+class     InlineKlass;
 class     InstanceMirrorKlass;
 class     InstanceClassLoaderKlass;
 class     InstanceRefKlass;
@@ -191,5 +194,6 @@ class     InstanceStackChunkKlass;
 class   ArrayKlass;
 class     ObjArrayKlass;
 class     TypeArrayKlass;
+class     FlatArrayKlass;
 
 #endif // SHARE_OOPS_OOPSHIERARCHY_HPP

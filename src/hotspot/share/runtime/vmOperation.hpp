@@ -113,6 +113,7 @@
   template(GTestExecuteAtSafepoint)               \
   template(GTestStopSafepoint)                    \
   template(JFROldObject)                          \
+  template(ClassPrintLayout)                      \
   template(JvmtiPostObjectFree)                   \
   template(RendezvousGCThreads)                   \
   template(ReinitializeMDO)

@@ -29,6 +29,7 @@
 #include "opto/addnode.hpp"
 #include "opto/callnode.hpp"
 #include "opto/cfgnode.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/loopnode.hpp"
 #include "opto/matcher.hpp"
 #include "opto/movenode.hpp"
@@ -53,11 +54,16 @@ Node* SubNode::Identity(PhaseGVN* phase) {
   assert(in(1) != this, "Must already have called Value");
   assert(in(2) != this, "Must already have called Value");
 
-  // Remove double negation
-  const Type *zero = add_id();
-  if( phase->type( in(1) )->higher_equal( zero ) &&
+  const Type* zero = add_id();
+
+  // Remove double negation if it is not a floating point number since negation
+  // is not the same as subtraction for floating point numbers
+  // (cf. JLS § 15.15.4). `0-(0-(-0.0))` must be equal to positive 0.0 according to
+  // JLS § 15.8.2, but would result in -0.0 if this folding would be applied.
+  if (phase->type(in(1))->higher_equal(zero) &&
       in(2)->Opcode() == Opcode() &&
-      phase->type( in(2)->in(1) )->higher_equal( zero ) ) {
+      phase->type(in(2)->in(1))->higher_equal(zero) &&
+      !phase->type(in(2)->in(2))->is_floatingpoint()) {
     return in(2)->in(2);
   }
 
@@ -909,7 +915,14 @@ Node *CmpINode::Ideal( PhaseGVN *phase, bool can_reshape ) {
   return nullptr;                  // No change
 }
 
-Node *CmpLNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
+//------------------------------Ideal------------------------------------------
+Node* CmpLNode::Ideal(PhaseGVN* phase, bool can_reshape) {
+  Node* a = nullptr;
+  Node* b = nullptr;
+  if (is_double_null_check(phase, a, b) && (phase->type(a)->is_zero_type() || phase->type(b)->is_zero_type())) {
+    // Degraded to a simple null check, use old acmp
+    return new CmpPNode(a, b);
+  }
   const TypeLong *t2 = phase->type(in(2))->isa_long();
   if (Opcode() == Op_CmpL && in(1)->Opcode() == Op_ConvI2L && t2 && t2->is_con()) {
     const jlong con = t2->get_con();
@@ -918,6 +931,31 @@ Node *CmpLNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
     }
   }
   return nullptr;
+}
+
+// Match double null check emitted by Compile::optimize_acmp()
+bool CmpLNode::is_double_null_check(PhaseGVN* phase, Node*& a, Node*& b) const {
+  if (in(1)->Opcode() == Op_OrL &&
+      in(1)->in(1)->Opcode() == Op_CastP2X &&
+      in(1)->in(2)->Opcode() == Op_CastP2X &&
+      in(2)->bottom_type()->is_zero_type()) {
+    assert(EnableValhalla, "unexpected double null check");
+    a = in(1)->in(1)->in(1);
+    b = in(1)->in(2)->in(1);
+    return true;
+  }
+  return false;
+}
+
+//------------------------------Value------------------------------------------
+const Type* CmpLNode::Value(PhaseGVN* phase) const {
+  Node* a = nullptr;
+  Node* b = nullptr;
+  if (is_double_null_check(phase, a, b) && (!phase->type(a)->maybe_null() || !phase->type(b)->maybe_null())) {
+    // One operand is never nullptr, emit constant false
+    return TypeInt::CC_GT;
+  }
+  return SubNode::Value(phase);
 }
 
 //=============================================================================
@@ -1045,7 +1083,22 @@ const Type *CmpPNode::sub( const Type *t1, const Type *t2 ) const {
                (k0 && !k0->maybe_java_subtype_of(k1))) {
       unrelated_classes = xklass0;
     }
-
+    if (!unrelated_classes) {
+      // Handle inline type arrays
+      if ((r0->flat_in_array() && r1->not_flat_in_array()) ||
+          (r1->flat_in_array() && r0->not_flat_in_array())) {
+        // One type is in flat arrays but the other type is not. Must be unrelated.
+        unrelated_classes = true;
+      } else if ((r0->is_not_flat() && r1->is_flat()) ||
+                 (r1->is_not_flat() && r0->is_flat())) {
+        // One type is a non-flat array and the other type is a flat array. Must be unrelated.
+        unrelated_classes = true;
+      } else if ((r0->is_not_null_free() && r1->is_null_free()) ||
+                 (r1->is_not_null_free() && r0->is_null_free())) {
+        // One type is a nullable array and the other type is a null-free array. Must be unrelated.
+        unrelated_classes = true;
+      }
+    }
     if (unrelated_classes) {
       // The oops classes are known to be unrelated. If the joined PTRs of
       // two oops is not Null and not Bottom, then we are sure that one
@@ -1130,7 +1183,14 @@ static inline Node* isa_const_java_mirror(PhaseGVN* phase, Node* n) {
 // super-type array vs a known klass with no subtypes.  This amounts to
 // checking to see an unknown klass subtypes a known klass with no subtypes;
 // this only happens on an exact match.  We can shorten this test by 1 load.
-Node *CmpPNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
+Node* CmpPNode::Ideal(PhaseGVN *phase, bool can_reshape) {
+  // TODO 8284443 in(1) could be cast?
+  if (in(1)->is_InlineType() && phase->type(in(2))->is_zero_type()) {
+    // Null checking a scalarized but nullable inline type. Check the IsInit
+    // input instead of the oop input to avoid keeping buffer allocations alive.
+    return new CmpINode(in(1)->as_InlineType()->get_is_init(), phase->intcon(0));
+  }
+
   // Normalize comparisons between Java mirrors into comparisons of the low-
   // level klass, where a dependent load could be shortened.
   //
@@ -1201,6 +1261,13 @@ Node *CmpPNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
   // Verify that we understand the situation
   if (con2 != (intptr_t) superklass->super_check_offset())
     return nullptr;                // Might be element-klass loading from array klass
+
+  // Do not fold the subtype check to an array klass pointer comparison for null-able inline type arrays
+  // because null-free [LMyValue <: null-able [LMyValue but the klasses are different. Perform a full test.
+  if (superklass->is_obj_array_klass() && !superklass->as_array_klass()->is_elem_null_free() &&
+      superklass->as_array_klass()->element_klass()->is_inlinetype()) {
+    return nullptr;
+  }
 
   // If 'superklass' has no subklasses and is not an interface, then we are
   // assured that the only input which will pass the type check is
@@ -1345,6 +1412,43 @@ Node *CmpDNode::Ideal(PhaseGVN *phase, bool can_reshape){
   return nullptr;                  // No change
 }
 
+//=============================================================================
+//------------------------------Value------------------------------------------
+const Type* FlatArrayCheckNode::Value(PhaseGVN* phase) const {
+  bool all_not_flat = true;
+  for (uint i = ArrayOrKlass; i < req(); ++i) {
+    const Type* t = phase->type(in(i));
+    if (t == Type::TOP) {
+      return Type::TOP;
+    }
+    if (t->is_ptr()->is_flat()) {
+      // One of the input arrays is flat, check always passes
+      return TypeInt::CC_EQ;
+    } else if (!t->is_ptr()->is_not_flat()) {
+      // One of the input arrays might be flat
+      all_not_flat = false;
+    }
+  }
+  if (all_not_flat) {
+    // None of the input arrays can be flat, check always fails
+    return TypeInt::CC_GT;
+  }
+  return TypeInt::CC;
+}
+
+//------------------------------Ideal------------------------------------------
+Node* FlatArrayCheckNode::Ideal(PhaseGVN* phase, bool can_reshape) {
+  bool changed = false;
+  // Remove inputs that are known to be non-flat
+  for (uint i = ArrayOrKlass; i < req(); ++i) {
+    const Type* t = phase->type(in(i));
+    if (t->isa_ptr() && t->is_ptr()->is_not_flat()) {
+      del_req(i--);
+      changed = true;
+    }
+  }
+  return changed ? this : nullptr;
+}
 
 //=============================================================================
 //------------------------------cc2logical-------------------------------------
@@ -2042,15 +2146,9 @@ const Type* ReverseLNode::Value(PhaseGVN* phase) const {
   return bottom_type();
 }
 
-Node* ReverseINode::Identity(PhaseGVN* phase) {
-  if (in(1)->Opcode() == Op_ReverseI) {
-    return in(1)->in(1);
-  }
-  return this;
-}
-
-Node* ReverseLNode::Identity(PhaseGVN* phase) {
-  if (in(1)->Opcode() == Op_ReverseL) {
+Node* InvolutionNode::Identity(PhaseGVN* phase) {
+  // Op ( Op x ) => x
+  if (in(1)->Opcode() == Opcode()) {
     return in(1)->in(1);
   }
   return this;

@@ -46,6 +46,16 @@ static void assert_test_pattern(Handle object, const char* pattern) {
   ASSERT_THAT(st.base(), testing::HasSubstr(pattern));
 }
 
+static void assert_mark_word_print_pattern(Handle object, const char* pattern) {
+  if (LockingMode == LM_MONITOR) {
+    // With heavy monitors, we do not use the mark word. Printing the oop only shows "monitor" regardless of the
+    // locking state.
+    assert_test_pattern(object, "monitor");
+  } else {
+    assert_test_pattern(object, pattern);
+  }
+}
+
 class LockerThread : public JavaTestThread {
   oop _obj;
   public:
@@ -85,13 +95,13 @@ TEST_VM(markWord, printing) {
   // Thread tries to lock it.
   {
     ObjectLocker ol(h_obj, THREAD);
-    assert_test_pattern(h_obj, "locked");
+    assert_mark_word_print_pattern(h_obj, "locked");
   }
-  assert_test_pattern(h_obj, "is_unlocked no_hash");
+  assert_mark_word_print_pattern(h_obj, "is_unlocked no_hash");
 
   // Hash the object then print it.
   intx hash = h_obj->identity_hash();
-  assert_test_pattern(h_obj, "is_unlocked hash=0x");
+  assert_mark_word_print_pattern(h_obj, "is_unlocked hash=0x");
 
   // Wait gets the lock inflated.
   {
@@ -107,4 +117,143 @@ TEST_VM(markWord, printing) {
     done.wait_with_safepoint_check(THREAD);  // wait till the thread is done.
   }
 }
+
+static void assert_unlocked_state(markWord mark) {
+  EXPECT_FALSE(mark.has_displaced_mark_helper());
+  if (LockingMode == LM_LEGACY) {
+    EXPECT_FALSE(mark.has_locker());
+  } else if (LockingMode == LM_LIGHTWEIGHT) {
+    EXPECT_FALSE(mark.is_fast_locked());
+  }
+  EXPECT_FALSE(mark.has_monitor());
+  EXPECT_FALSE(mark.is_being_inflated());
+  EXPECT_FALSE(mark.is_locked());
+  EXPECT_TRUE(mark.is_unlocked());
+}
+
+static void assert_copy_set_hash(markWord mark) {
+  const intptr_t hash = 4711;
+  EXPECT_TRUE(mark.has_no_hash());
+  markWord copy = mark.copy_set_hash(hash);
+  EXPECT_EQ(hash, copy.hash());
+  EXPECT_FALSE(copy.has_no_hash());
+}
+
+static void assert_type(markWord mark) {
+  EXPECT_FALSE(mark.is_flat_array());
+  EXPECT_FALSE(mark.is_inline_type());
+  EXPECT_FALSE(mark.is_larval_state());
+  EXPECT_FALSE(mark.is_null_free_array());
+}
+
+TEST_VM(markWord, prototype) {
+  markWord mark = markWord::prototype();
+  assert_unlocked_state(mark);
+  EXPECT_TRUE(mark.is_neutral());
+
+  assert_type(mark);
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+
+  assert_copy_set_hash(mark);
+  assert_type(mark);
+}
+
+static void assert_inline_type(markWord mark) {
+  EXPECT_FALSE(mark.is_flat_array());
+  EXPECT_TRUE(mark.is_inline_type());
+  EXPECT_FALSE(mark.is_null_free_array());
+}
+
+TEST_VM(markWord, inline_type_prototype) {
+  markWord mark = markWord::inline_type_prototype();
+  assert_unlocked_state(mark);
+  EXPECT_FALSE(mark.is_neutral());
+
+  assert_inline_type(mark);
+  EXPECT_FALSE(mark.is_larval_state());
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+
+  markWord larval = mark.enter_larval_state();
+  EXPECT_TRUE(larval.is_larval_state());
+  assert_inline_type(larval);
+  mark = larval.exit_larval_state();
+  EXPECT_FALSE(mark.is_larval_state());
+  assert_inline_type(mark);
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+}
+
+#if _LP64
+
+static void assert_flat_array_type(markWord mark) {
+  EXPECT_TRUE(mark.is_flat_array());
+  EXPECT_FALSE(mark.is_inline_type());
+  EXPECT_FALSE(mark.is_larval_state());
+}
+
+TEST_VM(markWord, null_free_flat_array_prototype) {
+  markWord mark = markWord::flat_array_prototype(LayoutKind::NON_ATOMIC_FLAT);
+  assert_unlocked_state(mark);
+  EXPECT_TRUE(mark.is_neutral());
+
+  assert_flat_array_type(mark);
+  EXPECT_TRUE(mark.is_null_free_array());
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+
+  assert_copy_set_hash(mark);
+  assert_flat_array_type(mark);
+  EXPECT_TRUE(mark.is_null_free_array());
+}
+
+TEST_VM(markWord, nullable_flat_array_prototype) {
+  markWord mark = markWord::flat_array_prototype(LayoutKind::NULLABLE_ATOMIC_FLAT);
+  assert_unlocked_state(mark);
+  EXPECT_TRUE(mark.is_neutral());
+
+  assert_flat_array_type(mark);
+  EXPECT_FALSE(mark.is_null_free_array());
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+
+  assert_copy_set_hash(mark);
+  assert_flat_array_type(mark);
+  EXPECT_FALSE(mark.is_null_free_array());
+}
+
+static void assert_null_free_array_type(markWord mark) {
+  EXPECT_FALSE(mark.is_flat_array());
+  EXPECT_FALSE(mark.is_inline_type());
+  EXPECT_FALSE(mark.is_larval_state());
+  EXPECT_TRUE(mark.is_null_free_array());
+}
+
+TEST_VM(markWord, null_free_array_prototype) {
+  markWord mark = markWord::null_free_array_prototype();
+  assert_unlocked_state(mark);
+  EXPECT_TRUE(mark.is_neutral());
+
+  assert_null_free_array_type(mark);
+
+  EXPECT_TRUE(mark.has_no_hash());
+  EXPECT_FALSE(mark.is_marked());
+  EXPECT_TRUE(mark.decode_pointer() == nullptr);
+
+  assert_copy_set_hash(mark);
+  assert_null_free_array_type(mark);
+}
+#endif // _LP64
+
 #endif // PRODUCT

@@ -51,20 +51,14 @@
     _deopt_handler_size = NOT_LP64(10) LP64_ONLY(17)
   };
 
+  void arraycopy_inlinetype_check(Register obj, Register tmp, CodeStub* slow_path, bool is_dest, bool null_check);
+  void move(LIR_Opr src, LIR_Opr dst);
+
 public:
 
   void store_parameter(Register r,  int offset_from_esp_in_words);
   void store_parameter(jint c,      int offset_from_esp_in_words);
   void store_parameter(jobject c,   int offset_from_esp_in_words);
   void store_parameter(Metadata* c, int offset_from_esp_in_words);
-
-#ifndef _LP64
-  void arith_fpu_implementation(LIR_Code code, int left_index, int right_index, int dest_index, bool pop_fpu_stack);
-
-  void fpop();
-  void fxch(int i);
-  void fld(int i);
-  void ffree(int i);
-#endif // !_LP64
 
 #endif // CPU_X86_C1_LIRASSEMBLER_X86_HPP

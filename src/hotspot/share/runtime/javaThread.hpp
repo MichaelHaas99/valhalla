@@ -147,6 +147,7 @@ class JavaThread: public Thread {
   // Used to pass back results to the interpreter or generated code running Java code.
   oop           _vm_result;    // oop result is GC-preserved
   Metadata*     _vm_result_2;  // non-oop result
+  oop           _return_buffered_value; // buffered value being returned
 
   // See ReduceInitialCardMarks: this holds the precise space interval of
   // the most recent slow path allocation for which compiled code has
@@ -170,10 +171,14 @@ class JavaThread: public Thread {
 
  public:
   void set_monitor_owner_id(int64_t id) {
-    assert(id >= ThreadIdentifier::initial() && id < ThreadIdentifier::current(), "");
+    ThreadIdentifier::verify_id(id);
     _monitor_owner_id = id;
   }
-  int64_t monitor_owner_id() const { return _monitor_owner_id; }
+  int64_t monitor_owner_id() const {
+    int64_t id = _monitor_owner_id;
+    ThreadIdentifier::verify_id(id);
+    return id;
+  }
 
   // For tracking the heavyweight monitor the thread is pending on.
   ObjectMonitor* current_pending_monitor() {
@@ -780,6 +785,9 @@ private:
 
   void set_vm_result_2  (Metadata* x)            { _vm_result_2   = x; }
 
+  oop return_buffered_value() const              { return _return_buffered_value; }
+  void set_return_buffered_value(oop val)        { _return_buffered_value = val; }
+
   MemRegion deferred_card_mark() const           { return _deferred_card_mark; }
   void set_deferred_card_mark(MemRegion mr)      { _deferred_card_mark = mr;   }
 
@@ -846,6 +854,7 @@ private:
   static ByteSize callee_target_offset()         { return byte_offset_of(JavaThread, _callee_target); }
   static ByteSize vm_result_offset()             { return byte_offset_of(JavaThread, _vm_result); }
   static ByteSize vm_result_2_offset()           { return byte_offset_of(JavaThread, _vm_result_2); }
+  static ByteSize return_buffered_value_offset() { return byte_offset_of(JavaThread, _return_buffered_value); }
   static ByteSize thread_state_offset()          { return byte_offset_of(JavaThread, _thread_state); }
   static ByteSize saved_exception_pc_offset()    { return byte_offset_of(JavaThread, _saved_exception_pc); }
   static ByteSize osthread_offset()              { return byte_offset_of(JavaThread, _osthread); }

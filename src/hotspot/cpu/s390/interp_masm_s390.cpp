@@ -93,8 +93,6 @@ void InterpreterMacroAssembler::dispatch_next(TosState state, int bcp_incr, bool
 // Dispatch value in Lbyte_code and increment Lbcp.
 
 void InterpreterMacroAssembler::dispatch_base(TosState state, address* table, bool generate_poll) {
-  verify_FPU(1, state);
-
 #ifdef ASSERT
   address reentry = nullptr;
   { Label OK;
@@ -1762,7 +1760,7 @@ void InterpreterMacroAssembler::profile_arguments_type(Register mdp, Register ca
         // argument. Tmp is the number of cells left in the
         // CallTypeData/VirtualCallTypeData to reach its end. Non null
         // if there's a return to profile.
-        assert(ReturnTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(), "can't move past ret type");
+        assert(SingleTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(), "can't move past ret type");
         z_sllg(tmp, tmp, exact_log2(DataLayout::cell_size));
         z_agr(mdp, tmp);
       }
@@ -1811,7 +1809,7 @@ void InterpreterMacroAssembler::profile_return_type(Register mdp, Register ret, 
       bind(do_profile);
     }
 
-    Address mdo_ret_addr(mdp, -in_bytes(ReturnTypeEntry::size()));
+    Address mdo_ret_addr(mdp, -in_bytes(SingleTypeEntry::size()));
     profile_obj_type(ret, mdo_ret_addr, tmp);
 
     bind(profile_continue);
@@ -2188,10 +2186,4 @@ void InterpreterMacroAssembler::pop_interpreter_frame(Register return_pc, Regist
   load_const_optimized(Z_ARG3, 0xb00b1);
   z_stg(Z_ARG3, _z_parent_ijava_frame_abi(return_pc), Z_SP);
 #endif
-}
-
-void InterpreterMacroAssembler::verify_FPU(int stack_depth, TosState state) {
-  if (VerifyFPU) {
-    unimplemented("verifyFPU");
-  }
 }

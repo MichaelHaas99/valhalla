@@ -59,23 +59,37 @@ inline bool Klass::is_loader_alive() const {
   return class_loader_data()->is_alive();
 }
 
+inline markWord Klass::make_prototype_header(const Klass* kls, markWord prototype) {
+  if (UseCompactObjectHeaders) {
+    // With compact object headers, the narrow Klass ID is part of the mark word.
+    // We therefore seed the mark word with the narrow Klass ID.
+    // Note that only those Klass that can be instantiated have a narrow Klass ID.
+    // For those who don't, we leave the klass bits empty and assert if someone
+    // tries to use those.
+    const narrowKlass nk = CompressedKlassPointers::is_encodable(kls) ?
+        CompressedKlassPointers::encode(const_cast<Klass*>(kls)) : 0;
+    prototype = prototype.set_narrow_klass(nk);
+  }
+  return prototype;
+}
+
+inline void Klass::set_prototype_header(markWord header) {
+  _prototype_header = header;
+}
+
 inline markWord Klass::prototype_header() const {
-  assert(UseCompactObjectHeaders, "only use with compact object headers");
-#ifdef _LP64
   // You only need prototypes for allocating objects. If the class is not instantiable, it won't live in
   // class space and have no narrow Klass ID. But in that case we should not need the prototype.
-  assert(_prototype_header.narrow_klass() > 0, "Klass " PTR_FORMAT ": invalid prototype (" PTR_FORMAT ")",
+  assert(!UseCompactObjectHeaders || _prototype_header.narrow_klass() > 0, "Klass " PTR_FORMAT ": invalid prototype (" PTR_FORMAT ")",
          p2i(this), _prototype_header.value());
-#endif
   return _prototype_header;
 }
 
-// This is only used when dumping the archive. In other cases,
-// the _prototype_header is already initialized to the right thing.
-inline void Klass::set_prototype_header(markWord header) {
-  assert(UseCompactObjectHeaders, "only with compact headers");
-  _prototype_header = header;
+// May no longer be required (was used to avoid a bootstrapping problem...
+inline markWord Klass::default_prototype_header(Klass* k) {
+  return (k == nullptr) ? markWord::prototype() : k->prototype_header();
 }
+
 
 // Loading the java_mirror does not keep its holder alive. See Klass::keep_alive().
 inline oop Klass::java_mirror() const {

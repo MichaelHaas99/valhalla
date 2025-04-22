@@ -80,7 +80,7 @@ class MetaspaceShared : AllStatic {
 private:
   static void exercise_runtime_cds_code(TRAPS) NOT_CDS_RETURN;
   static void preload_and_dump_impl(StaticArchiveBuilder& builder, TRAPS) NOT_CDS_RETURN;
-  static void preload_classes(TRAPS) NOT_CDS_RETURN;
+  static void loadable_descriptors(TRAPS) NOT_CDS_RETURN;
 
 public:
   static Symbol* symbol_rs_base() {
@@ -139,6 +139,7 @@ public:
   // Alignment for the 2 core CDS regions (RW/RO) only.
   // (Heap region alignments are decided by GC).
   static size_t core_region_alignment();
+  static size_t protection_zone_size();
   static void rewrite_nofast_bytecodes_and_calculate_fingerprints(Thread* thread, InstanceKlass* ik);
   // print loaded classes names to file.
   static void dump_loaded_classes(const char* file_name, TRAPS);

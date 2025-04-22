@@ -25,8 +25,8 @@
 #include "c1/c1_Compilation.hpp"
 #include "c1/c1_FrameMap.hpp"
 #include "c1/c1_GraphBuilder.hpp"
-#include "c1/c1_IR.hpp"
 #include "c1/c1_InstructionPrinter.hpp"
+#include "c1/c1_IR.hpp"
 #include "c1/c1_Optimizer.hpp"
 #include "compiler/oopMap.hpp"
 #include "memory/resourceArea.hpp"
@@ -171,6 +171,9 @@ int IRScope::max_stack() const {
 
 
 bool IRScopeDebugInfo::should_reexecute() {
+  if (_should_reexecute) {
+    return true;
+  }
   ciMethod* cur_method = scope()->method();
   int       cur_bci    = bci();
   if (cur_method != nullptr && cur_bci != SynchronizationEntryBCI) {
@@ -179,7 +182,6 @@ bool IRScopeDebugInfo::should_reexecute() {
   } else
     return false;
 }
-
 
 // Implementation of CodeEmitInfo
 
@@ -214,11 +216,11 @@ CodeEmitInfo::CodeEmitInfo(CodeEmitInfo* info, ValueStack* stack)
 }
 
 
-void CodeEmitInfo::record_debug_info(DebugInformationRecorder* recorder, int pc_offset) {
+void CodeEmitInfo::record_debug_info(DebugInformationRecorder* recorder, int pc_offset, bool maybe_return_as_fields) {
   // record the safepoint before recording the debug info for enclosing scopes
   recorder->add_safepoint(pc_offset, _oop_map->deep_copy());
   bool reexecute = _force_reexecute || _scope_debug_info->should_reexecute();
-  _scope_debug_info->record_debug_info(recorder, pc_offset, reexecute, _is_method_handle_invoke);
+  _scope_debug_info->record_debug_info(recorder, pc_offset, reexecute, _is_method_handle_invoke, maybe_return_as_fields);
   recorder->end_safepoint(pc_offset);
 }
 

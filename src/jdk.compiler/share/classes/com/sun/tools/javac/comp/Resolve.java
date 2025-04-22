@@ -115,6 +115,7 @@ public class Resolve {
     final EnumSet<VerboseResolutionMode> verboseResolutionMode;
     final boolean dumpMethodReferenceSearchResults;
     final boolean dumpStacktraceOnError;
+    private final LocalProxyVarsGen localProxyVarsGen;
 
     WriteableScope polymorphicSignatureScope;
 
@@ -154,6 +155,7 @@ public class Resolve {
         allowRecords = Feature.RECORDS.allowedInSource(source);
         dumpMethodReferenceSearchResults = options.isSet("debug.dumpMethodReferenceSearchResults");
         dumpStacktraceOnError = options.isSet("dev") || options.isSet(DOE);
+        localProxyVarsGen = LocalProxyVarsGen.instance(context);
     }
 
     /** error symbols, which are returned when resolution fails
@@ -421,45 +423,50 @@ public class Resolve {
             return true;
         }
 
-        switch ((short)(sym.flags() & AccessFlags)) {
-        case PRIVATE:
-            return
-                (env.enclClass.sym == sym.owner // fast special case
-                 ||
-                 env.enclClass.sym.outermostClass() ==
-                 sym.owner.outermostClass()
-                 ||
-                 privateMemberInPermitsClauseIfAllowed(env, sym))
-                &&
-                sym.isInheritedIn(site.tsym, types);
-        case 0:
-            return
-                (env.toplevel.packge == sym.owner.owner // fast special case
-                 ||
-                 env.toplevel.packge == sym.packge())
-                &&
-                isAccessible(env, site, checkInner)
-                &&
-                sym.isInheritedIn(site.tsym, types)
-                &&
-                notOverriddenIn(site, sym);
-        case PROTECTED:
-            return
-                (env.toplevel.packge == sym.owner.owner // fast special case
-                 ||
-                 env.toplevel.packge == sym.packge()
-                 ||
-                 isProtectedAccessible(sym, env.enclClass.sym, site)
-                 ||
-                 // OK to select instance method or field from 'super' or type name
-                 // (but type names should be disallowed elsewhere!)
-                 env.info.selectSuper && (sym.flags() & STATIC) == 0 && sym.kind != TYP)
-                &&
-                isAccessible(env, site, checkInner)
-                &&
-                notOverriddenIn(site, sym);
-        default: // this case includes erroneous combinations as well
-            return isAccessible(env, site, checkInner) && notOverriddenIn(site, sym);
+        ClassSymbol enclosingCsym = env.enclClass.sym;
+        try {
+            switch ((short)(sym.flags() & AccessFlags)) {
+                case PRIVATE:
+                    return
+                            (env.enclClass.sym == sym.owner // fast special case
+                                    ||
+                                    env.enclClass.sym.outermostClass() ==
+                                    sym.owner.outermostClass()
+                                    ||
+                                    privateMemberInPermitsClauseIfAllowed(env, sym))
+                                &&
+                                    sym.isInheritedIn(site.tsym, types);
+                case 0:
+                    return
+                            (env.toplevel.packge == sym.owner.owner // fast special case
+                                    ||
+                                    env.toplevel.packge == sym.packge())
+                                    &&
+                                    isAccessible(env, site, checkInner)
+                                    &&
+                                    sym.isInheritedIn(site.tsym, types)
+                                    &&
+                                    notOverriddenIn(site, sym);
+                case PROTECTED:
+                    return
+                            (env.toplevel.packge == sym.owner.owner // fast special case
+                                    ||
+                                    env.toplevel.packge == sym.packge()
+                                    ||
+                                    isProtectedAccessible(sym, env.enclClass.sym, site)
+                                    ||
+                                    // OK to select instance method or field from 'super' or type name
+                                    // (but type names should be disallowed elsewhere!)
+                                    env.info.selectSuper && (sym.flags() & STATIC) == 0 && sym.kind != TYP)
+                                    &&
+                                    isAccessible(env, site, checkInner)
+                                    &&
+                                    notOverriddenIn(site, sym);
+                default: // this case includes erroneous combinations as well
+                    return isAccessible(env, site, checkInner) && notOverriddenIn(site, sym);
+            }
+        } finally {
+            env.enclClass.sym = enclosingCsym;
         }
     }
 
@@ -1530,8 +1537,16 @@ public class Resolve {
                         (sym.flags() & STATIC) == 0) {
                     if (staticOnly)
                         return new StaticError(sym);
-                    if (env1.info.ctorPrologue && !isAllowedEarlyReference(pos, env1, (VarSymbol)sym))
-                        return new RefBeforeCtorCalledError(sym);
+                    if (env1.info.ctorPrologue && !isAllowedEarlyReference(pos, env1, (VarSymbol)sym)) {
+                        if (!env.tree.hasTag(ASSIGN) || !TreeInfo.isIdentOrThisDotIdent(((JCAssign)env.tree).lhs)) {
+                            if (!sym.isStrictInstance()) {
+                                return new RefBeforeCtorCalledError(sym);
+                            } else {
+                                localProxyVarsGen.addStrictFieldReadInPrologue(env.enclMethod, sym);
+                                return sym;
+                            }
+                        }
+                    }
                 }
                 return sym;
             } else {
@@ -4314,7 +4329,6 @@ public class Resolve {
                               rewriter,
                               kindName(ws),
                               ws.name == names.init ? ws.owner.name : ws.name,
-                              kindName(ws.owner),
                               ws.owner.type,
                               c.snd);
                 default:
@@ -5214,10 +5228,6 @@ public class Resolve {
 
         DeferredAttr.AttrMode attrMode() {
             return attrMode;
-        }
-
-        boolean internal() {
-            return internalResolution;
         }
     }
 

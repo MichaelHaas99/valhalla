@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2025, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -26,10 +26,9 @@
 #ifndef SHARE_RUNTIME_SIGNATURE_HPP
 #define SHARE_RUNTIME_SIGNATURE_HPP
 
+#include "classfile/symbolTable.hpp"
 #include "memory/allocation.hpp"
 #include "oops/method.hpp"
-#include "sanitizers/ub.hpp"
-
 
 // Static routines and parsing loops for processing field and method
 // descriptors.  In the HotSpot sources we call them "signatures".
@@ -339,11 +338,13 @@ class Fingerprinter: public SignatureIterator {
   void do_type_calling_convention(BasicType type);
 
   friend class SignatureIterator;  // so do_parameters_on can call do_type
-  ATTRIBUTE_NO_UBSAN
+
   void do_type(BasicType type) {
     assert(fp_is_valid_type(type), "bad parameter type");
-    _accumulator |= ((fingerprint_t)type << _shift_count);
-    _shift_count += fp_parameter_feature_size;
+    if (_param_size <= fp_max_size_of_parameters) {
+      _accumulator |= ((fingerprint_t)type << _shift_count);
+      _shift_count += fp_parameter_feature_size;
+    }
     _param_size += (is_double_word_type(type) ? 2 : 1);
     do_type_calling_convention(type);
   }
@@ -562,8 +563,65 @@ class SignatureStream : public StackObj {
 
   // free-standing lookups (bring your own CL/PD pair)
   enum FailureMode { ReturnNull, NCDFError, CachedOrNull };
+
   Klass* as_klass(Handle class_loader, FailureMode failure_mode, TRAPS);
+  InlineKlass* as_inline_klass(InstanceKlass* holder);
   oop as_java_mirror(Handle class_loader, FailureMode failure_mode, TRAPS);
+};
+
+class SigEntryFilter;
+typedef GrowableArrayFilterIterator<SigEntry, SigEntryFilter> ExtendedSignature;
+
+// Used for adapter generation. One SigEntry is used per element of
+// the signature of the method. Inline type arguments are treated
+// specially. See comment for InlineKlass::collect_fields().
+class SigEntry {
+ public:
+  BasicType _bt;      // Basic type of the argument
+  int _offset;        // Offset of the field in its value class holder for scalarized arguments (-1 otherwise). Used for packing and unpacking.
+  float _sort_offset; // Offset used for sorting
+  Symbol* _symbol;    // Symbol for printing
+
+  SigEntry()
+    : _bt(T_ILLEGAL), _offset(-1), _sort_offset(-1), _symbol(nullptr) {}
+
+  SigEntry(BasicType bt, int offset = -1, float sort_offset = -1, Symbol* symbol = nullptr)
+    : _bt(bt), _offset(offset), _sort_offset(sort_offset), _symbol(symbol) {}
+
+  static int compare(SigEntry* e1, SigEntry* e2) {
+    if (e1->_sort_offset != e2->_sort_offset) {
+      return e1->_sort_offset - e2->_sort_offset;
+    }
+    if (e1->_offset != e2->_offset) {
+      return e1->_offset - e2->_offset;
+    }
+    assert((e1->_bt == T_LONG && (e2->_bt == T_LONG || e2->_bt == T_VOID)) ||
+           (e1->_bt == T_DOUBLE && (e2->_bt == T_DOUBLE || e2->_bt == T_VOID)) ||
+           e1->_bt == T_METADATA || e2->_bt == T_METADATA || e1->_bt == T_VOID || e2->_bt == T_VOID, "bad bt");
+    if (e1->_bt == e2->_bt) {
+      assert(e1->_bt == T_METADATA || e1->_bt == T_VOID, "only ones with duplicate offsets");
+      return 0;
+    }
+    if (e1->_bt == T_VOID ||
+        e2->_bt == T_METADATA) {
+      return 1;
+    }
+    if (e1->_bt == T_METADATA ||
+        e2->_bt == T_VOID) {
+      return -1;
+    }
+    ShouldNotReachHere();
+    return 0;
+  }
+  static void add_entry(GrowableArray<SigEntry>* sig, BasicType bt, Symbol* symbol = nullptr, int offset = -1, float sort_offset = -1);
+  static bool skip_value_delimiters(const GrowableArray<SigEntry>* sig, int i);
+  static int fill_sig_bt(const GrowableArray<SigEntry>* sig, BasicType* sig_bt);
+  static TempNewSymbol create_symbol(const GrowableArray<SigEntry>* sig);
+};
+
+class SigEntryFilter {
+public:
+  bool operator()(const SigEntry& entry) { return entry._bt != T_METADATA && entry._bt != T_VOID; }
 };
 
 // Specialized SignatureStream: used for invoking SystemDictionary to either find
@@ -628,11 +686,11 @@ void SignatureIterator::do_parameters_on(T* callback) {
   }
 }
 
- #ifdef ASSERT
+#ifdef ASSERT
  class SignatureVerifier : public StackObj {
   public:
-    static bool is_valid_method_signature(Symbol* sig);
-    static bool is_valid_type_signature(Symbol* sig);
+    static bool is_valid_method_signature(const Symbol* sig);
+    static bool is_valid_type_signature(const Symbol* sig);
   private:
     static ssize_t is_valid_type(const char*, ssize_t);
 };

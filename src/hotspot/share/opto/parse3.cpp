@@ -25,9 +25,11 @@
 #include "compiler/compileLog.hpp"
 #include "interpreter/linkResolver.hpp"
 #include "memory/universe.hpp"
+#include "oops/flatArrayKlass.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "opto/addnode.hpp"
 #include "opto/castnode.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/memnode.hpp"
 #include "opto/parse.hpp"
 #include "opto/rootnode.hpp"
@@ -39,12 +41,25 @@
 //=============================================================================
 // Helper methods for _get* and _put* bytecodes
 //=============================================================================
+
 void Parse::do_field_access(bool is_get, bool is_field) {
   bool will_link;
   ciField* field = iter().get_field(will_link);
   assert(will_link, "getfield: typeflow responsibility");
 
   ciInstanceKlass* field_holder = field->holder();
+
+  if (is_get && is_field && field_holder->is_inlinetype() && peek()->is_InlineType()) {
+    InlineTypeNode* vt = peek()->as_InlineType();
+    null_check(vt);
+    Node* value = vt->field_value_by_offset(field->offset_in_bytes());
+    if (value->is_InlineType()) {
+      value = value->as_InlineType()->adjust_scalarization_depth(this);
+    }
+    pop();
+    push_node(field->layout_type(), value);
+    return;
+  }
 
   if (is_field == field->is_static()) {
     // Interpreter will throw java_lang_IncompatibleClassChangeError
@@ -56,7 +71,7 @@ void Parse::do_field_access(bool is_get, bool is_field) {
 
   // Deoptimize on putfield writes to call site target field outside of CallSite ctor.
   if (!is_get && field->is_call_site_target() &&
-      !(method()->holder() == field_holder && method()->is_object_initializer())) {
+      !(method()->holder() == field_holder && method()->is_object_constructor())) {
     uncommon_trap(Deoptimization::Reason_unhandled,
                   Deoptimization::Action_reinterpret,
                   nullptr, "put to call site target field");
@@ -87,28 +102,29 @@ void Parse::do_field_access(bool is_get, bool is_field) {
 
     if (is_get) {
       (void) pop();  // pop receiver before getting
-      do_get_xxx(obj, field, is_field);
+      do_get_xxx(obj, field);
     } else {
       do_put_xxx(obj, field, is_field);
+      if (stopped()) {
+        return;
+      }
       (void) pop();  // pop receiver after putting
     }
   } else {
     const TypeInstPtr* tip = TypeInstPtr::make(field_holder->java_mirror());
     obj = _gvn.makecon(tip);
     if (is_get) {
-      do_get_xxx(obj, field, is_field);
+      do_get_xxx(obj, field);
     } else {
       do_put_xxx(obj, field, is_field);
     }
   }
 }
 
-
-void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
+void Parse::do_get_xxx(Node* obj, ciField* field) {
   BasicType bt = field->layout_type();
-
   // Does this field have a constant value?  If so, just push the value.
-  if (field->is_constant() &&
+  if (field->is_constant() && !field->is_flat() &&
       // Keep consistent with types found by ciTypeFlow: for an
       // unloaded field type, ciTypeFlow::StateVector::do_getstatic()
       // speculates the field is null. The code in the rest of this
@@ -124,48 +140,57 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   }
 
   ciType* field_klass = field->type();
-  bool is_vol = field->is_volatile();
-
-  // Compute address and memory type.
+  field_klass = improve_abstract_inline_type_klass(field_klass);
   int offset = field->offset_in_bytes();
-  const TypePtr* adr_type = C->alias_type(field)->adr_type();
-  Node *adr = basic_plus_adr(obj, obj, offset);
-  assert(C->get_alias_index(adr_type) == C->get_alias_index(_gvn.type(adr)->isa_ptr()),
-    "slice of address and input slice don't match");
-
-  // Build the resultant type of the load
-  const Type *type;
-
   bool must_assert_null = false;
 
-  DecoratorSet decorators = IN_HEAP;
-  decorators |= is_vol ? MO_SEQ_CST : MO_UNORDERED;
-
-  bool is_obj = is_reference_type(bt);
-
-  if (is_obj) {
-    if (!field->type()->is_loaded()) {
-      type = TypeInstPtr::BOTTOM;
-      must_assert_null = true;
-    } else if (field->is_static_constant()) {
-      // This can happen if the constant oop is non-perm.
-      ciObject* con = field->constant_value().as_object();
-      // Do not "join" in the previous type; it doesn't add value,
-      // and may yield a vacuous result if the field is of interface type.
-      if (con->is_null_object()) {
-        type = TypePtr::NULL_PTR;
-      } else {
-        type = TypeOopPtr::make_from_constant(con)->isa_oopptr();
-      }
-      assert(type != nullptr, "field singleton type must be consistent");
-    } else {
-      type = TypeOopPtr::make_from_klass(field_klass->as_klass());
-    }
+  Node* ld = nullptr;
+  if (field->is_null_free() && field_klass->as_inline_klass()->is_empty()) {
+    // Loading from a field of an empty inline type. Just return the default instance.
+    ld = InlineTypeNode::make_all_zero(_gvn, field_klass->as_inline_klass());
+  } else if (field->is_flat()) {
+    // Loading from a flat inline type field.
+    ciInlineKlass* vk = field->type()->as_inline_klass();
+    bool is_naturally_atomic = field->is_null_free() && vk->nof_declared_nonstatic_fields() <= 1;
+    bool needs_atomic_access = (!field->is_null_free() || field->is_volatile()) && !is_naturally_atomic;
+    ld = InlineTypeNode::make_from_flat(this, field_klass->as_inline_klass(), obj, obj, nullptr, field->holder(), offset, needs_atomic_access, field->null_marker_offset());
   } else {
-    type = Type::get_const_basic_type(bt);
+    // Build the resultant type of the load
+    const Type* type;
+    if (is_reference_type(bt)) {
+      if (!field_klass->is_loaded()) {
+        type = TypeInstPtr::BOTTOM;
+        must_assert_null = true;
+      } else if (field->is_static_constant()) {
+        // This can happen if the constant oop is non-perm.
+        ciObject* con = field->constant_value().as_object();
+        // Do not "join" in the previous type; it doesn't add value,
+        // and may yield a vacuous result if the field is of interface type.
+        if (con->is_null_object()) {
+          type = TypePtr::NULL_PTR;
+        } else {
+          type = TypeOopPtr::make_from_constant(con)->isa_oopptr();
+        }
+        assert(type != nullptr, "field singleton type must be consistent");
+      } else {
+        type = TypeOopPtr::make_from_klass(field_klass->as_klass());
+        if (field->is_null_free()) {
+          type = type->join_speculative(TypePtr::NOTNULL);
+        }
+      }
+    } else {
+      type = Type::get_const_basic_type(bt);
+    }
+    Node* adr = basic_plus_adr(obj, obj, offset);
+    const TypePtr* adr_type = C->alias_type(field)->adr_type();
+    DecoratorSet decorators = IN_HEAP;
+    decorators |= field->is_volatile() ? MO_SEQ_CST : MO_UNORDERED;
+    ld = access_load_at(obj, adr, adr_type, type, bt, decorators);
+    if (field_klass->is_inlinetype()) {
+      // Load a non-flattened inline type from memory
+      ld = InlineTypeNode::make_from_oop(this, ld, field_klass->as_inline_klass());
+    }
   }
-
-  Node* ld = access_load_at(obj, adr, adr_type, type, bt, decorators);
 
   // Adjust Java stack
   if (type2size[bt] == 1)
@@ -189,7 +214,7 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
     }
     if (C->log() != nullptr) {
       C->log()->elem("assert_null reason='field' klass='%d'",
-                     C->log()->identify(field->type()));
+                     C->log()->identify(field_klass));
     }
     // If there is going to be a trap, put it at the next bytecode:
     set_bci(iter().next_bci());
@@ -198,36 +223,77 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   }
 }
 
-void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
-  bool is_vol = field->is_volatile();
-
-  // Compute address and memory type.
-  int offset = field->offset_in_bytes();
-  const TypePtr* adr_type = C->alias_type(field)->adr_type();
-  Node* adr = basic_plus_adr(obj, obj, offset);
-  assert(C->get_alias_index(adr_type) == C->get_alias_index(_gvn.type(adr)->isa_ptr()),
-    "slice of address and input slice don't match");
-  BasicType bt = field->layout_type();
-  // Value to be stored
-  Node* val = type2size[bt] == 1 ? pop() : pop_pair();
-
-  DecoratorSet decorators = IN_HEAP;
-  decorators |= is_vol ? MO_SEQ_CST : MO_UNORDERED;
-
-  bool is_obj = is_reference_type(bt);
-
-  // Store the value.
-  const Type* field_type;
-  if (!field->type()->is_loaded()) {
-    field_type = TypeInstPtr::BOTTOM;
-  } else {
-    if (is_obj) {
-      field_type = TypeOopPtr::make_from_klass(field->type()->as_klass());
-    } else {
-      field_type = Type::BOTTOM;
+// If the field klass is an abstract value klass (for which we do not know the layout, yet), it could have a unique
+// concrete sub klass for which we have a fixed layout. This allows us to use InlineTypeNodes instead.
+ciType* Parse::improve_abstract_inline_type_klass(ciType* field_klass) {
+  Dependencies* dependencies = C->dependencies();
+  if (UseUniqueSubclasses && dependencies != nullptr && field_klass->is_instance_klass()) {
+    ciInstanceKlass* instance_klass = field_klass->as_instance_klass();
+    if (instance_klass->is_loaded() && instance_klass->is_abstract_value_klass()) {
+      ciInstanceKlass* sub_klass = instance_klass->unique_concrete_subklass();
+      if (sub_klass != nullptr && sub_klass != field_klass) {
+        field_klass = sub_klass;
+        dependencies->assert_abstract_with_unique_concrete_subtype(instance_klass, sub_klass);
+      }
     }
   }
-  access_store_at(obj, adr, adr_type, val, field_type, bt, decorators);
+  return field_klass;
+}
+
+void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
+  bool is_vol = field->is_volatile();
+  int offset = field->offset_in_bytes();
+  BasicType bt = field->layout_type();
+  Node* val = type2size[bt] == 1 ? pop() : pop_pair();
+
+  if (field->is_null_free()) {
+    PreserveReexecuteState preexecs(this);
+    jvms()->set_should_reexecute(true);
+    inc_sp(1);
+    val = null_check(val);
+    if (stopped()) {
+      return;
+    }
+  }
+  if (obj->is_InlineType()) {
+    set_inline_type_field(obj, field, val);
+    return;
+  }
+  if (field->is_null_free() && field->type()->as_inline_klass()->is_empty() && (!method()->is_object_constructor() || field->is_flat())) {
+    // Storing to a field of an empty, null-free inline type that is already initialized. Ignore.
+    return;
+  } else if (field->is_flat()) {
+    // Storing to a flat inline type field.
+    ciInlineKlass* vk = field->type()->as_inline_klass();
+    if (!val->is_InlineType()) {
+      assert(gvn().type(val) == TypePtr::NULL_PTR, "Unexpected value");
+      val = InlineTypeNode::make_null(gvn(), vk);
+    }
+    inc_sp(1);
+    bool is_naturally_atomic = field->is_null_free() && vk->nof_declared_nonstatic_fields() <= 1;
+    bool needs_atomic_access = (!field->is_null_free() || field->is_volatile()) && !is_naturally_atomic;
+    val->as_InlineType()->store_flat(this, obj, obj, nullptr, field->holder(), offset, needs_atomic_access, field->null_marker_offset(), IN_HEAP | MO_UNORDERED);
+    dec_sp(1);
+  } else {
+    // Store the value.
+    const Type* field_type;
+    if (!field->type()->is_loaded()) {
+      field_type = TypeInstPtr::BOTTOM;
+    } else {
+      if (is_reference_type(bt)) {
+        field_type = TypeOopPtr::make_from_klass(field->type()->as_klass());
+      } else {
+        field_type = Type::BOTTOM;
+      }
+    }
+    Node* adr = basic_plus_adr(obj, obj, offset);
+    const TypePtr* adr_type = C->alias_type(field)->adr_type();
+    DecoratorSet decorators = IN_HEAP;
+    decorators |= is_vol ? MO_SEQ_CST : MO_UNORDERED;
+    inc_sp(1);
+    access_store_at(obj, adr, adr_type, val, field_type, bt, decorators);
+    dec_sp(1);
+  }
 
   if (is_field) {
     // Remember we wrote a volatile field.
@@ -261,23 +327,72 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
   }
 }
 
+void Parse::set_inline_type_field(Node* obj, ciField* field, Node* val) {
+  assert(_method->is_object_constructor(), "inline type is initialized outside of constructor");
+  assert(obj->as_InlineType()->is_larval(), "must be larval");
+  assert(!_gvn.type(obj)->maybe_null(), "should never be null");
+
+  // Re-execute if buffering in below code triggers deoptimization.
+  PreserveReexecuteState preexecs(this);
+  jvms()->set_should_reexecute(true);
+  inc_sp(1);
+
+  if (!val->is_InlineType() && field->type()->is_inlinetype()) {
+    // Scalarize inline type field value
+    val = InlineTypeNode::make_from_oop(this, val, field->type()->as_inline_klass());
+  } else if (val->is_InlineType() && !field->is_flat()) {
+    // Field value needs to be allocated because it can be merged with a non-inline type.
+    val = val->as_InlineType()->buffer(this);
+  }
+
+  // Clone the inline type node and set the new field value
+  InlineTypeNode* new_vt = obj->as_InlineType()->clone_if_required(&_gvn, _map);
+  new_vt->set_field_value_by_offset(field->offset_in_bytes(), val);
+  new_vt = new_vt->adjust_scalarization_depth(this);
+
+  // If the inline type is buffered and the caller might use the buffer, update it.
+  if (new_vt->is_allocated(&gvn()) && (!_caller->has_method() || C->inlining_incrementally() || _caller->method()->is_object_constructor())) {
+    new_vt->store(this, new_vt->get_oop(), new_vt->get_oop(), new_vt->bottom_type()->inline_klass(), 0, field->offset_in_bytes());
+
+    // Preserve allocation ptr to create precedent edge to it in membar
+    // generated on exit from constructor.
+    AllocateNode* alloc = AllocateNode::Ideal_allocation(new_vt->get_oop());
+    if (alloc != nullptr) {
+      set_alloc_with_final_or_stable(new_vt->get_oop());
+    }
+    set_wrote_final(true);
+  }
+
+  replace_in_map(obj, _gvn.transform(new_vt));
+  return;
+}
+
 //=============================================================================
-void Parse::do_anewarray() {
+
+void Parse::do_newarray() {
   bool will_link;
   ciKlass* klass = iter().get_klass(will_link);
 
   // Uncommon Trap when class that array contains is not loaded
   // we need the loaded class for the rest of graph; do not
   // initialize the container class (see Java spec)!!!
-  assert(will_link, "anewarray: typeflow responsibility");
+  assert(will_link, "newarray: typeflow responsibility");
 
-  ciObjArrayKlass* array_klass = ciObjArrayKlass::make(klass);
+  ciArrayKlass* array_klass = ciArrayKlass::make(klass);
+
   // Check that array_klass object is loaded
   if (!array_klass->is_loaded()) {
     // Generate uncommon_trap for unloaded array_class
     uncommon_trap(Deoptimization::Reason_unloaded,
                   Deoptimization::Action_reinterpret,
                   array_klass);
+    return;
+  } else if (array_klass->element_klass() != nullptr &&
+             array_klass->element_klass()->is_inlinetype() &&
+             !array_klass->element_klass()->as_inline_klass()->is_initialized()) {
+    uncommon_trap(Deoptimization::Reason_uninitialized,
+                  Deoptimization::Action_reinterpret,
+                  nullptr);
     return;
   }
 
@@ -339,7 +454,18 @@ void Parse::do_multianewarray() {
   Node** length = NEW_RESOURCE_ARRAY(Node*, ndimensions + 1);
   length[ndimensions] = nullptr;  // terminating null for make_runtime_call
   int j;
-  for (j = ndimensions-1; j >= 0 ; j--) length[j] = pop();
+  ciKlass* elem_klass = array_klass;
+  for (j = ndimensions-1; j >= 0; j--) {
+    length[j] = pop();
+    elem_klass = elem_klass->as_array_klass()->element_klass();
+  }
+  if (elem_klass != nullptr && elem_klass->is_inlinetype() && !elem_klass->as_inline_klass()->is_initialized()) {
+    inc_sp(ndimensions);
+    uncommon_trap(Deoptimization::Reason_uninitialized,
+                  Deoptimization::Action_reinterpret,
+                  nullptr);
+    return;
+  }
 
   // The original expression was of this form: new T[length0][length1]...
   // It is often the case that the lengths are small (except the last).

@@ -29,6 +29,7 @@
 #include "compiler/compileBroker.hpp"
 #include "compiler/compileLog.hpp"
 #include "interpreter/linkResolver.hpp"
+#include "jvm_io.h"
 #include "logging/log.hpp"
 #include "logging/logLevel.hpp"
 #include "logging/logMessage.hpp"
@@ -37,6 +38,7 @@
 #include "opto/callGenerator.hpp"
 #include "opto/castnode.hpp"
 #include "opto/cfgnode.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/parse.hpp"
 #include "opto/rootnode.hpp"
@@ -145,7 +147,21 @@ CallGenerator* Compile::call_generator(ciMethod* callee, int vtable_index, bool 
   // methods.  If these methods are replaced with specialized code,
   // then we return it as the inlined version of the call.
   CallGenerator* cg_intrinsic = nullptr;
-  if (allow_inline && allow_intrinsics) {
+  if (callee->intrinsic_id() == vmIntrinsics::_makePrivateBuffer || callee->intrinsic_id() == vmIntrinsics::_finishPrivateBuffer) {
+    // These methods must be inlined so that we don't have larval value objects crossing method
+    // boundaries
+    assert(!call_does_dispatch, "callee should not be virtual %s", callee->name()->as_utf8());
+    CallGenerator* cg = find_intrinsic(callee, call_does_dispatch);
+
+    if (cg == nullptr) {
+      // This is probably because the intrinsics is disabled from the command line
+      char reason[256];
+      jio_snprintf(reason, sizeof(reason), "cannot find an intrinsics for %s", callee->name()->as_utf8());
+      C->record_method_not_compilable(reason);
+      return nullptr;
+    }
+    return cg;
+  } else if (allow_inline && allow_intrinsics) {
     CallGenerator* cg = find_intrinsic(callee, call_does_dispatch);
     if (cg != nullptr) {
       if (cg->is_predicated()) {
@@ -601,7 +617,7 @@ void Parse::do_call() {
 
   // Additional receiver subtype checks for interface calls via invokespecial or invokeinterface.
   ciKlass* receiver_constraint = nullptr;
-  if (iter().cur_bc_raw() == Bytecodes::_invokespecial && !orig_callee->is_object_initializer()) {
+  if (iter().cur_bc_raw() == Bytecodes::_invokespecial && !orig_callee->is_object_constructor()) {
     ciInstanceKlass* calling_klass = method()->holder();
     ciInstanceKlass* sender_klass = calling_klass;
     if (sender_klass->is_interface()) {
@@ -643,13 +659,15 @@ void Parse::do_call() {
   // This call checks with CHA, the interpreter profile, intrinsics table, etc.
   // It decides whether inlining is desirable or not.
   CallGenerator* cg = C->call_generator(callee, vtable_index, call_does_dispatch, jvms, try_inline, prof_factor(), speculative_receiver_type);
+  if (failing()) {
+    return;
+  }
+  assert(cg != nullptr, "must find a CallGenerator for callee %s", callee->name()->as_utf8());
 
   // NOTE:  Don't use orig_callee and callee after this point!  Use cg->method() instead.
   orig_callee = callee = nullptr;
 
   // ---------------------
-  // Round double arguments before call
-  round_double_arguments(cg->method());
 
   // Feed profiling data for arguments to the type system so it can
   // propagate it as speculative types
@@ -731,7 +749,7 @@ void Parse::do_call() {
         BasicType rt = rtype->basic_type();
         BasicType ct = ctype->basic_type();
         if (ct == T_VOID) {
-          // It's OK for a method  to return a value that is discarded.
+          // It's OK for a method to return a value that is discarded.
           // The discarding does not require any special action from the caller.
           // The Java code knows this, at VerifyType.isNullConversion.
           pop_node(rt);  // whatever it was, pop it
@@ -788,6 +806,59 @@ void Parse::do_call() {
     BasicType ct = ctype->basic_type();
     if (is_reference_type(ct)) {
       record_profiled_return_for_speculation();
+    }
+    if (rtype->is_inlinetype() && !peek()->is_InlineType()) {
+      Node* retnode = pop();
+      retnode = InlineTypeNode::make_from_oop(this, retnode, rtype->as_inline_klass());
+      push_node(T_OBJECT, retnode);
+    }
+
+    // Note that:
+    // - The caller map is the state just before the call of the currently parsed method with all arguments
+    //   on the stack. Therefore, we have caller_map->arg(0) == this.
+    // - local(0) contains the updated receiver after calling an inline type constructor.
+    // - Abstract value classes are not ciInlineKlass instances and thus abstract_value_klass->is_inlinetype() is false.
+    //   We use the bottom type of the receiver node to determine if we have a value class or not.
+    const bool is_current_method_inline_type_constructor =
+        // Is current method a constructor (i.e <init>)?
+        _method->is_object_constructor() &&
+        // Is the holder of the current constructor method an inline type?
+        _caller->map()->argument(_caller, 0)->bottom_type()->is_inlinetypeptr();
+    assert(!is_current_method_inline_type_constructor || !cg->method()->is_object_constructor() || receiver != nullptr,
+           "must have valid receiver after calling another constructor");
+    if (is_current_method_inline_type_constructor &&
+        // Is the just called method an inline type constructor?
+        cg->method()->is_object_constructor() && receiver->bottom_type()->is_inlinetypeptr() &&
+         // AND:
+         // 1) ... invoked on the same receiver? Then it's another constructor on the same object doing the initialization.
+        (receiver == _caller->map()->argument(_caller, 0) ||
+         // 2) ... abstract? Then it's the call to the super constructor which eventually calls Object.<init> to
+         //                    finish the initialization of this larval.
+         cg->method()->holder()->is_abstract() ||
+         // 3) ... Object.<init>? Then we know it's the final call to finish the larval initialization. Other
+         //        Object.<init> calls would have a non-inline-type receiver which we already excluded in the check above.
+         cg->method()->holder()->is_java_lang_Object())
+        ) {
+      assert(local(0)->is_InlineType() && receiver->bottom_type()->is_inlinetypeptr() && receiver->is_InlineType() &&
+             _caller->map()->argument(_caller, 0)->bottom_type()->inline_klass() == receiver->bottom_type()->inline_klass(),
+             "Unexpected receiver");
+      InlineTypeNode* updated_receiver = local(0)->as_InlineType();
+      InlineTypeNode* cloned_updated_receiver = updated_receiver->clone_if_required(&_gvn, _map);
+      cloned_updated_receiver->set_is_larval(false);
+      cloned_updated_receiver = _gvn.transform(cloned_updated_receiver)->as_InlineType();
+      // Receiver updated by the just called constructor. We need to update the map to make the effect visible. After
+      // the super() call, only the updated receiver in local(0) will be used from now on. Therefore, we do not need
+      // to update the original receiver 'receiver' but only the 'updated_receiver'.
+      replace_in_map(updated_receiver, cloned_updated_receiver);
+
+      if (_caller->has_method()) {
+        // If the current method is inlined, we also need to update the exit map to propagate the updated receiver
+        // to the caller map.
+        Node* receiver_in_caller = _caller->map()->argument(_caller, 0);
+        assert(receiver_in_caller->bottom_type()->inline_klass() == receiver->bottom_type()->inline_klass(),
+               "Receiver type mismatch");
+        _exits.map()->replace_edge(receiver_in_caller, cloned_updated_receiver, &_gvn);
+      }
     }
   }
 

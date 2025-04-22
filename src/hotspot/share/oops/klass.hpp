@@ -68,11 +68,13 @@ class Klass : public Metadata {
   // Klass Kinds for all subclasses of Klass
   enum KlassKind : u2 {
     InstanceKlassKind,
+    InlineKlassKind,
     InstanceRefKlassKind,
     InstanceMirrorKlassKind,
     InstanceClassLoaderKlassKind,
     InstanceStackChunkKlassKind,
     TypeArrayKlassKind,
+    FlatArrayKlassKind,
     ObjArrayKlassKind,
     UnknownKlassKind
   };
@@ -99,7 +101,7 @@ class Klass : public Metadata {
   // distinct bytes, as follows:
   //    MSB:[tag, hsz, ebt, log2(esz)]:LSB
   // where:
-  //    tag is 0x80 if the elements are oops, 0xC0 if non-oops
+  //    tag is 0x80 if the elements are oops, 0xC0 if non-oops, 0xA0 if value types
   //    hsz is array header size in bytes (i.e., offset of first element)
   //    ebt is the BasicType of the elements
   //    esz is the element size in bytes
@@ -205,7 +207,7 @@ public:
 
 protected:
 
-  Klass(KlassKind kind);
+  Klass(KlassKind kind, markWord prototype_header = markWord::prototype());
   Klass();
 
  public:
@@ -461,11 +463,18 @@ protected:
   static const int _lh_element_type_mask       = right_n_bits(BitsPerByte);  // shifted mask
   static const int _lh_header_size_shift       = BitsPerByte*2;
   static const int _lh_header_size_mask        = right_n_bits(BitsPerByte);  // shifted mask
-  static const int _lh_array_tag_bits          = 2;
+  static const int _lh_array_tag_bits          = 3;
   static const int _lh_array_tag_shift         = BitsPerInt - _lh_array_tag_bits;
-  static const int _lh_array_tag_obj_value     = ~0x01;   // 0x80000000 >> 30
 
-  static const unsigned int _lh_array_tag_type_value = 0Xffffffff; // ~0x00,  // 0xC0000000 >> 30
+  static const unsigned int _lh_array_tag_type_value = 0Xfffffffc;
+  static const unsigned int _lh_array_tag_vt_value   = 0Xfffffffd;
+  static const unsigned int _lh_array_tag_obj_value  = 0Xfffffffe;
+
+  // null-free array flag bit under the array tag bits, shift one more to get array tag value
+  static const int _lh_null_free_shift = _lh_array_tag_shift - 1;
+  static const int _lh_null_free_mask  = 1;
+
+  static const jint _lh_array_tag_flat_value_bit_inplace = (jint) (1 << _lh_array_tag_shift);
 
   static int layout_helper_size_in_bytes(jint lh) {
     assert(lh > (jint)_lh_neutral_value, "must be instance");
@@ -482,12 +491,22 @@ protected:
     return (jint)lh < (jint)_lh_neutral_value;
   }
   static bool layout_helper_is_typeArray(jint lh) {
-    // _lh_array_tag_type_value == (lh >> _lh_array_tag_shift);
-    return (juint)lh >= (juint)(_lh_array_tag_type_value << _lh_array_tag_shift);
+    return (juint) _lh_array_tag_type_value == (juint)(lh >> _lh_array_tag_shift);
   }
   static bool layout_helper_is_objArray(jint lh) {
-    // _lh_array_tag_obj_value == (lh >> _lh_array_tag_shift);
-    return (jint)lh < (jint)(_lh_array_tag_type_value << _lh_array_tag_shift);
+    return (juint)_lh_array_tag_obj_value == (juint)(lh >> _lh_array_tag_shift);
+  }
+  static bool layout_helper_is_flatArray(jint lh) {
+    return (juint)_lh_array_tag_vt_value == (juint)(lh >> _lh_array_tag_shift);
+  }
+  static bool layout_helper_is_null_free(jint lh) {
+    assert(layout_helper_is_flatArray(lh) || layout_helper_is_objArray(lh), "must be array of inline types");
+    return ((lh >> _lh_null_free_shift) & _lh_null_free_mask);
+  }
+  static jint layout_helper_set_null_free(jint lh) {
+    lh |= (_lh_null_free_mask << _lh_null_free_shift);
+    assert(layout_helper_is_null_free(lh), "Bad encoding");
+    return lh;
   }
   static int layout_helper_header_size(jint lh) {
     assert(lh < (jint)_lh_neutral_value, "must be array");
@@ -498,7 +517,7 @@ protected:
   static BasicType layout_helper_element_type(jint lh) {
     assert(lh < (jint)_lh_neutral_value, "must be array");
     int btvalue = (lh >> _lh_element_type_shift) & _lh_element_type_mask;
-    assert(btvalue >= T_BOOLEAN && btvalue <= T_OBJECT, "sanity");
+    assert((btvalue >= T_BOOLEAN && btvalue <= T_OBJECT) || btvalue == T_FLAT_ELEMENT, "sanity");
     return (BasicType) btvalue;
   }
 
@@ -519,12 +538,13 @@ protected:
   static int layout_helper_log2_element_size(jint lh) {
     assert(lh < (jint)_lh_neutral_value, "must be array");
     int l2esz = (lh >> _lh_log2_element_size_shift) & _lh_log2_element_size_mask;
-    assert(l2esz <= LogBytesPerLong,
+    assert(layout_helper_element_type(lh) == T_FLAT_ELEMENT || l2esz <= LogBytesPerLong,
            "sanity. l2esz: 0x%x for lh: 0x%x", (uint)l2esz, (uint)lh);
     return l2esz;
   }
-  static jint array_layout_helper(jint tag, int hsize, BasicType etype, int log2_esize) {
+  static jint array_layout_helper(jint tag, bool null_free, int hsize, BasicType etype, int log2_esize) {
     return (tag        << _lh_array_tag_shift)
+      |    ((null_free ? 1 : 0) <<  _lh_null_free_shift)
       |    (hsize      << _lh_header_size_shift)
       |    ((int)etype << _lh_element_type_shift)
       |    (log2_esize << _lh_log2_element_size_shift);
@@ -668,7 +688,10 @@ public:
   virtual bool is_array_klass_slow()        const { return false; }
   virtual bool is_objArray_klass_slow()     const { return false; }
   virtual bool is_typeArray_klass_slow()    const { return false; }
+  virtual bool is_flatArray_klass_slow()    const { return false; }
 #endif // ASSERT
+  // current implementation uses this method even in non debug builds
+  virtual bool is_inline_klass_slow()       const { return false; }
  public:
 
   // Fast non-virtual versions
@@ -684,16 +707,18 @@ public:
   #endif
 
   bool is_instance_klass()              const { return assert_same_query(_kind <= InstanceStackChunkKlassKind, is_instance_klass_slow()); }
-  // Other is anything that is not one of the more specialized kinds of InstanceKlass.
-  bool is_other_instance_klass()        const { return _kind == InstanceKlassKind; }
+  bool is_inline_klass()                const { return assert_same_query(_kind == InlineKlassKind, is_inline_klass_slow()); }
   bool is_reference_instance_klass()    const { return _kind == InstanceRefKlassKind; }
   bool is_mirror_instance_klass()       const { return _kind == InstanceMirrorKlassKind; }
   bool is_class_loader_instance_klass() const { return _kind == InstanceClassLoaderKlassKind; }
   bool is_array_klass()                 const { return assert_same_query( _kind >= TypeArrayKlassKind, is_array_klass_slow()); }
   bool is_stack_chunk_instance_klass()  const { return _kind == InstanceStackChunkKlassKind; }
+  bool is_flatArray_klass()             const { return assert_same_query( _kind == FlatArrayKlassKind, is_flatArray_klass_slow()); }
   bool is_objArray_klass()              const { return assert_same_query( _kind == ObjArrayKlassKind,  is_objArray_klass_slow()); }
   bool is_typeArray_klass()             const { return assert_same_query( _kind == TypeArrayKlassKind, is_typeArray_klass_slow()); }
   #undef assert_same_query
+
+  inline bool is_null_free_array_klass() const { return !is_typeArray_klass() && layout_helper_is_null_free(layout_helper()); }
 
   // Access flags
   AccessFlags access_flags() const         { return _access_flags;  }
@@ -703,8 +728,8 @@ public:
   bool is_final() const                 { return _access_flags.is_final(); }
   bool is_interface() const             { return _access_flags.is_interface(); }
   bool is_abstract() const              { return _access_flags.is_abstract(); }
-  bool is_super() const                 { return _access_flags.is_super(); }
   bool is_synthetic() const             { return _access_flags.is_synthetic(); }
+  bool is_identity_class() const        { return _access_flags.is_identity_class(); }
   void set_is_synthetic()               { _access_flags.set_is_synthetic(); }
   bool has_finalizer() const            { return _misc_flags.has_finalizer(); }
   void set_has_finalizer()              { _misc_flags.set_has_finalizer(true); }
@@ -720,9 +745,11 @@ public:
   bool is_cloneable() const;
   void set_is_cloneable();
 
+  static inline markWord make_prototype_header(const Klass* kls, markWord prototype = markWord::prototype());
   inline markWord prototype_header() const;
   inline void set_prototype_header(markWord header);
   static ByteSize prototype_header_offset() { return in_ByteSize(offset_of(Klass, _prototype_header)); }
+  static inline markWord default_prototype_header(Klass* k);
 
   JFR_ONLY(DEFINE_TRACE_ID_METHODS;)
 

@@ -64,9 +64,11 @@ public @interface PreviewFeature {
      * Values should be annotated with the feature's {@code JEP}.
      */
     public enum Feature {
+        @JEP(number=401, title="Value Classes and Objects", status = "Preview")
+        VALUE_OBJECTS,
+
         // while building the interim javac, the ClassReader will produce a warning when loading a class
         // keeping the constant of a feature that has been integrated or dropped, serves the purpose of muting such warnings.
-
         //---
         @JEP(number=495, title="Simple Source Files and Instance Main Methods", status="Fourth Preview")
         IMPLICIT_CLASSES,

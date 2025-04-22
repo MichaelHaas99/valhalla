@@ -372,9 +372,13 @@ oop MemAllocator::finish(HeapWord* mem) const {
   // object zeroing are visible before setting the klass non-null, for
   // concurrent collectors.
   if (UseCompactObjectHeaders) {
-    oopDesc::release_set_mark(mem, _klass->prototype_header());
+    oopDesc::release_set_mark(mem, Klass::default_prototype_header(_klass));
   } else {
-    oopDesc::set_mark(mem, markWord::prototype());
+    if (EnableValhalla) {
+      oopDesc::set_mark(mem, Klass::default_prototype_header(_klass));
+    } else {
+      oopDesc::set_mark(mem, markWord::prototype());
+    }
     oopDesc::release_set_klass(mem, _klass);
   }
   return cast_to_oop(mem);
@@ -384,6 +388,12 @@ oop ObjAllocator::initialize(HeapWord* mem) const {
   mem_clear(mem);
   return finish(mem);
 }
+
+oop ObjBufferAllocator::initialize(HeapWord* mem) const {
+  mem_clear(mem);
+  return finish(mem);
+}
+
 
 oop ObjArrayAllocator::initialize(HeapWord* mem) const {
   // Set array length before setting the _klass field because a

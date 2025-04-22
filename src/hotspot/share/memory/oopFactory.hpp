@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,20 @@ class oopFactory: AllStatic {
 
   // Regular object arrays
   static objArrayOop     new_objArray(Klass* klass, int length, TRAPS);
+
+  // Value arrays...
+  // LWorld:
+  //    - Q-type signature allocation should use this path.
+  //    - L-type signature allocation should use new_objArray
+  //
+  // Method specifically null free and possibly flat if possible
+  // i.e. flatArrayOop if flattening can be done, else "null free" objArrayOop
+  static flatArrayOop        new_flatArray(Klass* klass, int length, LayoutKind lk, TRAPS);
+  static objArrayOop         new_null_free_objArray(Klass* klass, int length, TRAPS);
+
+  // Helper conversions from value to obj array...
+  static objArrayHandle  copy_flatArray_to_objArray(flatArrayHandle array, TRAPS);
+  static objArrayHandle  ensure_objArray(oop array, TRAPS); // copy into new objArray if not already an objArray
 
   // Helper that returns a Handle
   static objArrayHandle  new_objArray_handle(Klass* klass, int length, TRAPS);

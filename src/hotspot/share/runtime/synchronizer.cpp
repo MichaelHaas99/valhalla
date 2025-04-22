@@ -48,7 +48,6 @@
 #include "runtime/objectMonitor.inline.hpp"
 #include "runtime/os.inline.hpp"
 #include "runtime/osThread.hpp"
-#include "runtime/perfData.hpp"
 #include "runtime/safepointMechanism.inline.hpp"
 #include "runtime/safepointVerifiers.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -76,10 +75,14 @@ void MonitorList::add(ObjectMonitor* m) {
     m->set_next_om(head);
   } while (Atomic::cmpxchg(&_head, head, m) != head);
 
-  size_t count = Atomic::add(&_count, 1u);
-  if (count > max()) {
-    Atomic::inc(&_max);
-  }
+  size_t count = Atomic::add(&_count, 1u, memory_order_relaxed);
+  size_t old_max;
+  do {
+    old_max = Atomic::load(&_max);
+    if (count <= old_max) {
+      break;
+    }
+  } while (Atomic::cmpxchg(&_max, old_max, count, memory_order_relaxed) != old_max);
 }
 
 size_t MonitorList::count() const {
@@ -312,6 +315,22 @@ jlong ObjectSynchronizer::_last_async_deflation_time_ns = 0;
 static uintx _no_progress_cnt = 0;
 static bool _no_progress_skip_increment = false;
 
+// These checks are required for wait, notify and exit to avoid inflating the monitor to
+// find out this inline type object cannot be locked.
+#define CHECK_THROW_NOSYNC_IMSE(obj)  \
+  if (EnableValhalla && (obj)->mark().is_inline_type()) {  \
+    JavaThread* THREAD = current;           \
+    ResourceMark rm(THREAD);                \
+    THROW_MSG(vmSymbols::java_lang_IllegalMonitorStateException(), obj->klass()->external_name()); \
+  }
+
+#define CHECK_THROW_NOSYNC_IMSE_0(obj)  \
+  if (EnableValhalla && (obj)->mark().is_inline_type()) {  \
+    JavaThread* THREAD = current;             \
+    ResourceMark rm(THREAD);                  \
+    THROW_MSG_0(vmSymbols::java_lang_IllegalMonitorStateException(), obj->klass()->external_name()); \
+  }
+
 // =====================> Quick functions
 
 // The quick_* forms are special fast-path variants used to improve
@@ -338,6 +357,7 @@ bool ObjectSynchronizer::quick_notify(oopDesc* obj, JavaThread* current, bool al
   assert(current->thread_state() == _thread_in_Java, "invariant");
   NoSafepointVerifier nsv;
   if (obj == nullptr) return false;  // slow-path for invalid obj
+  assert(!EnableValhalla || !obj->klass()->is_inline_klass(), "monitor op on inline type");
   const markWord mark = obj->mark();
 
   if (LockingMode == LM_LIGHTWEIGHT) {
@@ -372,12 +392,9 @@ bool ObjectSynchronizer::quick_notify(oopDesc* obj, JavaThread* current, bool al
       } else {
         DTRACE_MONITOR_PROBE(notify, mon, obj, current);
       }
-      int free_count = 0;
       do {
-        mon->INotify(current);
-        ++free_count;
+        mon->notify_internal(current);
       } while (mon->first_waiter() != nullptr && all);
-      OM_PERFDATA_OP(Notifications, inc(free_count));
     }
     return true;
   }
@@ -402,13 +419,10 @@ static bool useHeavyMonitors() {
 
 bool ObjectSynchronizer::quick_enter_legacy(oop obj, BasicLock* lock, JavaThread* current) {
   assert(current->thread_state() == _thread_in_Java, "invariant");
+  assert(!EnableValhalla || !obj->klass()->is_inline_klass(), "monitor op on inline type");
 
   if (useHeavyMonitors()) {
     return false;  // Slow path
-  }
-
-  if (LockingMode == LM_LIGHTWEIGHT) {
-    return LightweightSynchronizer::quick_enter(obj, lock, current);
   }
 
   assert(LockingMode == LM_LEGACY, "legacy mode below");
@@ -521,6 +535,7 @@ void ObjectSynchronizer::enter_for(Handle obj, BasicLock* lock, JavaThread* lock
   // the locking_thread with respect to the current thread. Currently only used when
   // deoptimizing and re-locking locks. See Deoptimization::relock_objects
   assert(locking_thread == Thread::current() || locking_thread->is_obj_deopt_suspend(), "must be");
+  assert(!EnableValhalla || !obj->klass()->is_inline_klass(), "JITed code should never have locked an instance of a value class");
 
   if (LockingMode == LM_LIGHTWEIGHT) {
     return LightweightSynchronizer::enter_for(obj, lock, locking_thread);
@@ -543,6 +558,7 @@ void ObjectSynchronizer::enter_for(Handle obj, BasicLock* lock, JavaThread* lock
 }
 
 void ObjectSynchronizer::enter_legacy(Handle obj, BasicLock* lock, JavaThread* current) {
+  assert(!EnableValhalla || !obj->klass()->is_inline_klass(), "This method should never be called on an instance of an inline class");
   if (!enter_fast_impl(obj, lock, current)) {
     // Inflated ObjectMonitor::enter is required
 
@@ -562,6 +578,7 @@ void ObjectSynchronizer::enter_legacy(Handle obj, BasicLock* lock, JavaThread* c
 // of this algorithm. Make sure to update that code if the following function is
 // changed. The implementation is extremely sensitive to race condition. Be careful.
 bool ObjectSynchronizer::enter_fast_impl(Handle obj, BasicLock* lock, JavaThread* locking_thread) {
+  guarantee(!EnableValhalla || !obj->klass()->is_inline_klass(), "Attempt to inflate inline type");
   assert(LockingMode != LM_LIGHTWEIGHT, "Use LightweightSynchronizer");
 
   if (obj->klass()->is_value_based()) {
@@ -609,6 +626,9 @@ void ObjectSynchronizer::exit_legacy(oop object, BasicLock* lock, JavaThread* cu
 
   if (!useHeavyMonitors()) {
     markWord mark = object->mark();
+    if (EnableValhalla && mark.is_inline_type()) {
+      return;
+    }
     if (LockingMode == LM_LEGACY) {
       markWord dhw = lock->displaced_header();
       if (dhw.value() == 0) {
@@ -665,12 +685,23 @@ void ObjectSynchronizer::exit_legacy(oop object, BasicLock* lock, JavaThread* cu
 // JNI locks on java objects
 // NOTE: must use heavy weight monitor to handle jni monitor enter
 void ObjectSynchronizer::jni_enter(Handle obj, JavaThread* current) {
+  JavaThread* THREAD = current;
   // Top native frames in the stack will not be seen if we attempt
   // preemption, since we start walking from the last Java anchor.
   NoPreemptMark npm(current);
 
   if (obj->klass()->is_value_based()) {
     handle_sync_on_value_based_class(obj, current);
+  }
+
+  if (EnableValhalla && obj->klass()->is_inline_klass()) {
+    ResourceMark rm(THREAD);
+    const char* desc = "Cannot synchronize on an instance of value class ";
+    const char* className = obj->klass()->external_name();
+    size_t msglen = strlen(desc) + strlen(className) + 1;
+    char* message = NEW_RESOURCE_ARRAY(char, msglen);
+    assert(message != nullptr, "NEW_RESOURCE_ARRAY should have called vm_exit_out_of_memory and not return nullptr");
+    THROW_MSG(vmSymbols::java_lang_IdentityException(), className);
   }
 
   // the current locking is from JNI instead of Java code
@@ -699,6 +730,7 @@ void ObjectSynchronizer::jni_enter(Handle obj, JavaThread* current) {
 // NOTE: must use heavy weight monitor to handle jni monitor exit
 void ObjectSynchronizer::jni_exit(oop obj, TRAPS) {
   JavaThread* current = THREAD;
+  CHECK_THROW_NOSYNC_IMSE(obj);
 
   ObjectMonitor* monitor;
   if (LockingMode == LM_LIGHTWEIGHT) {
@@ -743,6 +775,7 @@ ObjectLocker::~ObjectLocker() {
 
 int ObjectSynchronizer::wait(Handle obj, jlong millis, TRAPS) {
   JavaThread* current = THREAD;
+  CHECK_THROW_NOSYNC_IMSE_0(obj);
   if (millis < 0) {
     THROW_MSG_0(vmSymbols::java_lang_IllegalArgumentException(), "timeout value is negative");
   }
@@ -785,6 +818,7 @@ void ObjectSynchronizer::waitUninterruptibly(Handle obj, jlong millis, TRAPS) {
 
 void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   JavaThread* current = THREAD;
+  CHECK_THROW_NOSYNC_IMSE(obj);
 
   markWord mark = obj->mark();
   if (LockingMode == LM_LIGHTWEIGHT) {
@@ -813,6 +847,7 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
 // NOTE: see comment of notify()
 void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
   JavaThread* current = THREAD;
+  CHECK_THROW_NOSYNC_IMSE(obj);
 
   markWord mark = obj->mark();
   if (LockingMode == LM_LIGHTWEIGHT) {
@@ -994,6 +1029,10 @@ static intptr_t install_hash_code(Thread* current, oop obj) {
 }
 
 intptr_t ObjectSynchronizer::FastHashCode(Thread* current, oop obj) {
+  if (EnableValhalla && obj->klass()->is_inline_klass()) {
+    // VM should be calling bootstrap method
+    ShouldNotReachHere();
+  }
   if (UseObjectMonitorTable) {
     // Since the monitor isn't in the object header, the hash can simply be
     // installed in the object header.
@@ -1120,6 +1159,9 @@ intptr_t ObjectSynchronizer::FastHashCode(Thread* current, oop obj) {
 
 bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* current,
                                                    Handle h_obj) {
+  if (EnableValhalla && h_obj->mark().is_inline_type()) {
+    return false;
+  }
   assert(current == JavaThread::current(), "Can only be called on current thread");
   oop obj = h_obj();
 
@@ -1312,6 +1354,14 @@ static bool monitors_used_above_threshold(MonitorList* list) {
   return false;
 }
 
+size_t ObjectSynchronizer::in_use_list_count() {
+  return _in_use_list.count();
+}
+
+size_t ObjectSynchronizer::in_use_list_max() {
+  return _in_use_list.max();
+}
+
 size_t ObjectSynchronizer::in_use_list_ceiling() {
   return _in_use_list_ceiling;
 }
@@ -1419,7 +1469,11 @@ static void post_monitor_inflate_event(EventJavaMonitorInflate* event,
                                        const oop obj,
                                        ObjectSynchronizer::InflateCause cause) {
   assert(event != nullptr, "invariant");
-  event->set_monitorClass(obj->klass());
+  const Klass* monitor_klass = obj->klass();
+  if (ObjectMonitor::is_jfr_excluded(monitor_klass)) {
+    return;
+  }
+  event->set_monitorClass(monitor_klass);
   event->set_address((uintptr_t)(void*)obj);
   event->set_cause((u1)cause);
   event->commit();
@@ -1451,6 +1505,9 @@ ObjectMonitor* ObjectSynchronizer::inflate_for(JavaThread* thread, oop obj, cons
 }
 
 ObjectMonitor* ObjectSynchronizer::inflate_impl(JavaThread* locking_thread, oop object, const InflateCause cause) {
+  if (EnableValhalla) {
+    guarantee(!object->klass()->is_inline_klass(), "Attempt to inflate inline type");
+  }
   // The JavaThread* locking_thread requires that the locking_thread == Thread::current() or
   // is suspended throughout the call by some other mechanism.
   // The thread might be nullptr when called from a non JavaThread. (As may still be
@@ -1583,9 +1640,6 @@ ObjectMonitor* ObjectSynchronizer::inflate_impl(JavaThread* locking_thread, oop 
       // with the ObjectMonitor, it is safe to allow async deflation:
       _in_use_list.add(m);
 
-      // Hopefully the performance counters are allocated on distinct cache lines
-      // to avoid false sharing on MP systems ...
-      OM_PERFDATA_OP(Inflations, inc());
       if (log_is_enabled(Trace, monitorinflation)) {
         ResourceMark rm;
         lsh.print_cr("inflate(has_locker): object=" INTPTR_FORMAT ", mark="
@@ -1625,9 +1679,6 @@ ObjectMonitor* ObjectSynchronizer::inflate_impl(JavaThread* locking_thread, oop 
     // with the ObjectMonitor, it is safe to allow async deflation:
     _in_use_list.add(m);
 
-    // Hopefully the performance counters are allocated on distinct
-    // cache lines to avoid false sharing on MP systems ...
-    OM_PERFDATA_OP(Inflations, inc());
     if (log_is_enabled(Trace, monitorinflation)) {
       ResourceMark rm;
       lsh.print_cr("inflate(unlocked): object=" INTPTR_FORMAT ", mark="
@@ -1710,8 +1761,8 @@ class ObjectMonitorDeflationLogging: public StackObj {
   elapsedTimer                             _timer;
 
   size_t ceiling() const { return ObjectSynchronizer::in_use_list_ceiling(); }
-  size_t count() const   { return ObjectSynchronizer::_in_use_list.count(); }
-  size_t max() const     { return ObjectSynchronizer::_in_use_list.max(); }
+  size_t count() const   { return ObjectSynchronizer::in_use_list_count(); }
+  size_t max() const     { return ObjectSynchronizer::in_use_list_max(); }
 
 public:
   ObjectMonitorDeflationLogging()
@@ -1854,9 +1905,6 @@ size_t ObjectSynchronizer::deflate_idle_monitors() {
   }
 
   log.end(deflated_count, unlinked_count);
-
-  OM_PERFDATA_OP(MonExtant, set_value(_in_use_list.count()));
-  OM_PERFDATA_OP(Deflations, inc(deflated_count));
 
   GVars.stw_random = os::random();
 

@@ -25,11 +25,20 @@
  * @test
  * @bug 8266670 8291734 8296743
  * @summary Test expected AccessFlag's on classes.
+ * @modules java.base/jdk.internal.misc
+ * @library /test/lib ..
+ * @enablePreview
  */
+
+
+import jdk.internal.misc.PreviewFeatures;
 
 import java.lang.annotation.*;
 import java.lang.reflect.*;
 import java.util.*;
+
+import jtreg.SkippedException;
+
 
 /*
  * Class access flags that can directly or indirectly declared in
@@ -50,6 +59,9 @@ import java.util.*;
 @ExpectedClassFlags("[PUBLIC, FINAL, SUPER]")
 public final class ClassAccessFlagTest {
     public static void main(String... args) {
+        if (PreviewFeatures.isEnabled()) {
+            throw new SkippedException("Preview mode not supported");
+        }
         // Top-level and auxiliary classes; i.e. non-inner classes
         Class<?>[] testClasses = {
             ClassAccessFlagTest.class,

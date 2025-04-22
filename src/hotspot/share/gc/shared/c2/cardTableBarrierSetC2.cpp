@@ -124,25 +124,29 @@ bool CardTableBarrierSetC2::use_ReduceInitialCardMarks() {
   return ReduceInitialCardMarks;
 }
 
-void CardTableBarrierSetC2::eliminate_gc_barrier(PhaseMacroExpand* macro, Node* node) const {
+void CardTableBarrierSetC2::eliminate_gc_barrier(PhaseIterGVN* igvn, Node* node) const {
   assert(node->Opcode() == Op_CastP2X, "ConvP2XNode required");
-  Node *shift = node->unique_out();
-  Node *addp = shift->unique_out();
-  for (DUIterator_Last jmin, j = addp->last_outs(jmin); j >= jmin; --j) {
-    Node *mem = addp->last_out(j);
-    if (UseCondCardMark && mem->is_Load()) {
-      assert(mem->Opcode() == Op_LoadB, "unexpected code shape");
-      // The load is checking if the card has been written so
-      // replace it with zero to fold the test.
-      macro->replace_node(mem, macro->intcon(0));
-      continue;
+  for (DUIterator_Last imin, i = node->last_outs(imin); i >= imin; --i) {
+    Node* shift = node->last_out(i);
+    for (DUIterator_Last jmin, j = shift->last_outs(jmin); j >= jmin; --j) {
+      Node* addp = shift->last_out(j);
+      for (DUIterator_Last kmin, k = addp->last_outs(kmin); k >= kmin; --k) {
+        Node* mem = addp->last_out(k);
+        if (UseCondCardMark && mem->is_Load()) {
+          assert(mem->Opcode() == Op_LoadB, "unexpected code shape");
+          // The load is checking if the card has been written so
+          // replace it with zero to fold the test.
+          igvn->replace_node(mem, igvn->intcon(0));
+          continue;
+        }
+        assert(mem->is_Store(), "store required");
+        igvn->replace_node(mem, mem->in(MemNode::Memory));
+      }
     }
-    assert(mem->is_Store(), "store required");
-    macro->replace_node(mem, mem->in(MemNode::Memory));
   }
 }
 
 bool CardTableBarrierSetC2::array_copy_requires_gc_barriers(bool tightly_coupled_alloc, BasicType type, bool is_clone, bool is_clone_instance, ArrayCopyPhase phase) const {
-  bool is_oop = is_reference_type(type);
+  bool is_oop = type == T_OBJECT || type == T_ARRAY;
   return is_oop && (!tightly_coupled_alloc || !use_ReduceInitialCardMarks());
 }

@@ -26,6 +26,7 @@
 package java.lang.invoke;
 
 import jdk.internal.constant.ClassOrInterfaceDescImpl;
+import jdk.internal.misc.PreviewFeatures;
 import jdk.internal.misc.CDS;
 import jdk.internal.util.ClassFileDumper;
 import sun.invoke.util.VerifyAccess;
@@ -37,9 +38,15 @@ import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.MethodBuilder;
 import java.lang.classfile.Opcode;
 import java.lang.classfile.TypeKind;
+
 import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
+import java.lang.reflect.AccessFlag;
+import java.lang.reflect.ClassFileFormatVersion;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -47,8 +54,10 @@ import java.util.function.Consumer;
 
 import static java.lang.classfile.ClassFile.*;
 import java.lang.classfile.attribute.ExceptionsAttribute;
+import java.lang.classfile.attribute.LoadableDescriptorsAttribute;
 import java.lang.classfile.constantpool.ClassEntry;
 import java.lang.classfile.constantpool.ConstantPoolBuilder;
+import java.lang.classfile.constantpool.Utf8Entry;
 
 import static java.lang.constant.ConstantDescs.*;
 import static java.lang.invoke.MethodHandleNatives.Constants.NESTMATE_CLASS;
@@ -310,8 +319,15 @@ import sun.invoke.util.Wrapper;
         final byte[] classBytes = ClassFile.of().build(lambdaClassEntry, pool, new Consumer<ClassBuilder>() {
             @Override
             public void accept(ClassBuilder clb) {
-                clb.withFlags(ACC_SUPER | ACC_FINAL | ACC_SYNTHETIC)
+                clb.withVersion(ClassFileFormatVersion.latest().major(), (PreviewFeatures.isEnabled() ? 0xFFFF0000 : 0))
+                   .withFlags(ACC_SUPER | ACC_FINAL | ACC_SYNTHETIC)
                    .withInterfaceSymbols(interfaces);
+
+                // generate LoadableDescriptors attribute if it references any value class
+                if (PreviewFeatures.isEnabled()) {
+                    generateLoadableDescriptors(clb);
+                }
+
                 // Generate final fields to be filled in by constructor
                 for (int i = 0; i < argDescs.length; i++) {
                     clb.withField(argName(i), argDescs[i], ACC_PRIVATE | ACC_FINAL);
@@ -542,6 +558,73 @@ import sun.invoke.util.Wrapper;
             cob.loadLocal(TypeKind.from(argType), cob.parameterSlot(i));
             TypeConvertingMethodAdapter.convertType(cob, argType, implMethodType.parameterType(captureArity + i), dynamicMethodType.parameterType(i));
         }
+    }
+
+    /*
+     * LoadableDescriptors attribute builder
+     */
+    static class LoadableDescriptorsAttributeBuilder {
+        private final Set<String> loadableDescriptors = new HashSet<>();
+        LoadableDescriptorsAttributeBuilder(Class<?> targetClass) {
+            if (requiresLoadableDescriptors(targetClass)) {
+                loadableDescriptors.add(targetClass.descriptorString());
+            }
+        }
+
+        /*
+         * Add the value types referenced in the given MethodType.
+         */
+        LoadableDescriptorsAttributeBuilder add(MethodType mt) {
+            // parameter types
+            for (Class<?> paramType : mt.ptypes()) {
+                if (requiresLoadableDescriptors(paramType)) {
+                    loadableDescriptors.add(paramType.descriptorString());
+                }
+            }
+            // return type
+            if (requiresLoadableDescriptors(mt.returnType())) {
+                loadableDescriptors.add(mt.returnType().descriptorString());
+            }
+            return this;
+        }
+
+        LoadableDescriptorsAttributeBuilder add(MethodType... mtypes) {
+            for (MethodType mt : mtypes) {
+                add(mt);
+            }
+            return this;
+        }
+
+        boolean requiresLoadableDescriptors(Class<?> cls) {
+            return cls.isValue() && cls.accessFlags().contains(AccessFlag.FINAL);
+        }
+
+        boolean isEmpty() {
+            return loadableDescriptors.isEmpty();
+        }
+
+        void build(ClassBuilder clb) {
+            if (!isEmpty()) {
+                List<Utf8Entry> lds = new ArrayList<Utf8Entry>(loadableDescriptors.size());
+                for (String ld : loadableDescriptors) {
+                    lds.add(clb.constantPool().utf8Entry(ld));
+                }
+                clb.with(LoadableDescriptorsAttribute.of(lds));
+            }
+        }
+    }
+
+    /**
+     * Generate LoadableDescriptors attribute if it references any value class
+     */
+    private void generateLoadableDescriptors(ClassBuilder clb) {
+        LoadableDescriptorsAttributeBuilder builder = new LoadableDescriptorsAttributeBuilder(targetClass);
+        builder.add(factoryType)
+               .add(interfaceMethodType)
+               .add(implMethodType)
+               .add(dynamicMethodType)
+               .add(altMethods)
+          .build(clb);
     }
 
     private Opcode invocationOpcode() throws InternalError {

@@ -86,6 +86,7 @@ class EncodePNode;
 class EncodePKlassNode;
 class FastLockNode;
 class FastUnlockNode;
+class FlatArrayCheckNode;
 class HaltNode;
 class IfNode;
 class IfProjNode;
@@ -118,12 +119,14 @@ class MachJumpNode;
 class MachNode;
 class MachNullCheckNode;
 class MachProjNode;
+class MachPrologNode;
 class MachReturnNode;
 class MachSafePointNode;
 class MachSpillCopyNode;
 class MachTempNode;
 class MachMergeNode;
 class MachMemBarNode;
+class MachVEPNode;
 class Matcher;
 class MemBarNode;
 class MemBarStoreStoreNode;
@@ -180,6 +183,7 @@ class SubTypeCheckNode;
 class Type;
 class TypeNode;
 class UnlockNode;
+class InlineTypeNode;
 class VectorNode;
 class LoadVectorNode;
 class LoadVectorMaskedNode;
@@ -335,8 +339,11 @@ protected:
   void grow( uint len );
   // Grow the output array to the next larger power-of-2 bigger than len.
   void out_grow( uint len );
+  // Resize input or output array to grow it to the next larger power-of-2
+  // bigger than len.
+  void resize_array(Node**& array, node_idx_t& max_size, uint len, bool needs_clearing);
 
- public:
+public:
   // Each Node is assigned a unique small/dense number. This number is used
   // to index into auxiliary arrays of data and bit vectors.
   // The value of _idx can be changed using the set_idx() method.
@@ -691,6 +698,7 @@ public:
       DEFINE_CLASS_ID(MemBar,      Multi, 3)
         DEFINE_CLASS_ID(Initialize,       MemBar, 0)
         DEFINE_CLASS_ID(MemBarStoreStore, MemBar, 1)
+        DEFINE_CLASS_ID(Blackhole,        MemBar, 2)
 
     DEFINE_CLASS_ID(Mach,  Node, 1)
       DEFINE_CLASS_ID(MachReturn, Mach, 0)
@@ -712,6 +720,8 @@ public:
         DEFINE_CLASS_ID(MachJump,       MachConstant, 0)
       DEFINE_CLASS_ID(MachMerge,        Mach, 6)
       DEFINE_CLASS_ID(MachMemBar,       Mach, 7)
+      DEFINE_CLASS_ID(MachProlog,       Mach, 8)
+      DEFINE_CLASS_ID(MachVEP,          Mach, 9)
 
     DEFINE_CLASS_ID(Type,  Node, 2)
       DEFINE_CLASS_ID(Phi,   Type, 0)
@@ -744,10 +754,11 @@ public:
         DEFINE_CLASS_ID(NegV, Vector, 8)
         DEFINE_CLASS_ID(SaturatingVector, Vector, 9)
         DEFINE_CLASS_ID(MulVL, Vector, 10)
-      DEFINE_CLASS_ID(Con, Type, 8)
+      DEFINE_CLASS_ID(InlineType, Type, 8)
+      DEFINE_CLASS_ID(Con, Type, 9)
           DEFINE_CLASS_ID(ConI, Con, 0)
-      DEFINE_CLASS_ID(SafePointScalarMerge, Type, 9)
-      DEFINE_CLASS_ID(Convert, Type, 10)
+      DEFINE_CLASS_ID(SafePointScalarMerge, Type, 10)
+      DEFINE_CLASS_ID(Convert, Type, 11)
 
 
     DEFINE_CLASS_ID(Proj,  Node, 3)
@@ -785,9 +796,10 @@ public:
 
     DEFINE_CLASS_ID(Sub,   Node, 6)
       DEFINE_CLASS_ID(Cmp,   Sub, 0)
-        DEFINE_CLASS_ID(FastLock,   Cmp, 0)
-        DEFINE_CLASS_ID(FastUnlock, Cmp, 1)
-        DEFINE_CLASS_ID(SubTypeCheck,Cmp, 2)
+        DEFINE_CLASS_ID(FastLock,       Cmp, 0)
+        DEFINE_CLASS_ID(FastUnlock,     Cmp, 1)
+        DEFINE_CLASS_ID(SubTypeCheck,   Cmp, 2)
+        DEFINE_CLASS_ID(FlatArrayCheck, Cmp, 3)
 
     DEFINE_CLASS_ID(MergeMem, Node, 7)
     DEFINE_CLASS_ID(Bool,     Node, 8)
@@ -830,8 +842,9 @@ public:
     Flag_is_expensive                = 1 << 13,
     Flag_is_predicated_vector        = 1 << 14,
     Flag_for_post_loop_opts_igvn     = 1 << 15,
-    Flag_is_removed_by_peephole      = 1 << 16,
-    Flag_is_predicated_using_blend   = 1 << 17,
+    Flag_for_merge_stores_igvn       = 1 << 16,
+    Flag_is_removed_by_peephole      = 1 << 17,
+    Flag_is_predicated_using_blend   = 1 << 18,
     _last_flag                       = Flag_is_predicated_using_blend
   };
 
@@ -895,6 +908,7 @@ public:
   DEFINE_CLASS_QUERY(ArrayCopy)
   DEFINE_CLASS_QUERY(BaseCountedLoop)
   DEFINE_CLASS_QUERY(BaseCountedLoopEnd)
+  DEFINE_CLASS_QUERY(Blackhole)
   DEFINE_CLASS_QUERY(Bool)
   DEFINE_CLASS_QUERY(BoxLock)
   DEFINE_CLASS_QUERY(Call)
@@ -927,6 +941,7 @@ public:
   DEFINE_CLASS_QUERY(EncodePKlass)
   DEFINE_CLASS_QUERY(FastLock)
   DEFINE_CLASS_QUERY(FastUnlock)
+  DEFINE_CLASS_QUERY(FlatArrayCheck)
   DEFINE_CLASS_QUERY(Halt)
   DEFINE_CLASS_QUERY(If)
   DEFINE_CLASS_QUERY(RangeCheck)
@@ -959,12 +974,14 @@ public:
   DEFINE_CLASS_QUERY(MachJump)
   DEFINE_CLASS_QUERY(MachNullCheck)
   DEFINE_CLASS_QUERY(MachProj)
+  DEFINE_CLASS_QUERY(MachProlog)
   DEFINE_CLASS_QUERY(MachReturn)
   DEFINE_CLASS_QUERY(MachSafePoint)
   DEFINE_CLASS_QUERY(MachSpillCopy)
   DEFINE_CLASS_QUERY(MachTemp)
   DEFINE_CLASS_QUERY(MachMemBar)
   DEFINE_CLASS_QUERY(MachMerge)
+  DEFINE_CLASS_QUERY(MachVEP)
   DEFINE_CLASS_QUERY(Mem)
   DEFINE_CLASS_QUERY(MemBar)
   DEFINE_CLASS_QUERY(MemBarStoreStore)
@@ -1002,6 +1019,7 @@ public:
   DEFINE_CLASS_QUERY(Sub)
   DEFINE_CLASS_QUERY(SubTypeCheck)
   DEFINE_CLASS_QUERY(Type)
+  DEFINE_CLASS_QUERY(InlineType)
   DEFINE_CLASS_QUERY(Vector)
   DEFINE_CLASS_QUERY(VectorMaskCmp)
   DEFINE_CLASS_QUERY(VectorUnbox)
@@ -1075,6 +1093,7 @@ public:
   bool is_scheduled() const { return (_flags & Flag_is_scheduled) != 0; }
 
   bool for_post_loop_opts_igvn() const { return (_flags & Flag_for_post_loop_opts_igvn) != 0; }
+  bool for_merge_stores_igvn() const { return (_flags & Flag_for_merge_stores_igvn) != 0; }
 
   // Is 'n' possibly a loop entry (i.e. a Parse Predicate projection)?
   static bool may_be_loop_entry(Node* n) {
@@ -1740,7 +1759,7 @@ public:
   Unique_Node_List(Unique_Node_List&&) = default;
 
   void remove( Node *n );
-  bool member( Node *n ) { return _in_worklist.test(n->_idx) != 0; }
+  bool member(const Node* n) const { return _in_worklist.test(n->_idx) != 0; }
   VectorSet& member_set(){ return _in_worklist; }
 
   void push(Node* b) {
@@ -2059,6 +2078,7 @@ public:
 }
 
 Op_IL(Add)
+Op_IL(And)
 Op_IL(Sub)
 Op_IL(Mul)
 Op_IL(URShift)

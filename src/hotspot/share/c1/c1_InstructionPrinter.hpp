@@ -25,8 +25,8 @@
 #ifndef SHARE_C1_C1_INSTRUCTIONPRINTER_HPP
 #define SHARE_C1_C1_INSTRUCTIONPRINTER_HPP
 
-#include "c1/c1_IR.hpp"
 #include "c1/c1_Instruction.hpp"
+#include "c1/c1_IR.hpp"
 #include "c1/c1_Runtime1.hpp"
 
 #ifndef PRODUCT
@@ -120,12 +120,12 @@ class InstructionPrinter: public InstructionVisitor {
   virtual void do_Base           (Base*            x);
   virtual void do_OsrEntry       (OsrEntry*        x);
   virtual void do_ExceptionObject(ExceptionObject* x);
-  virtual void do_RoundFP        (RoundFP*         x);
   virtual void do_UnsafeGet      (UnsafeGet*       x);
   virtual void do_UnsafePut      (UnsafePut*       x);
   virtual void do_UnsafeGetAndSet(UnsafeGetAndSet* x);
   virtual void do_ProfileCall    (ProfileCall*     x);
   virtual void do_ProfileReturnType (ProfileReturnType*  x);
+  virtual void do_ProfileACmpTypes(ProfileACmpTypes*  x);
   virtual void do_ProfileInvoke  (ProfileInvoke*   x);
   virtual void do_RuntimeCall    (RuntimeCall*     x);
   virtual void do_MemBar         (MemBar*          x);

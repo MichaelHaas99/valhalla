@@ -26,6 +26,7 @@
  * @bug 6970584 8006694 8062373 8129962
  * @summary assorted position errors in compiler syntax trees
  *  temporarily workaround combo tests are causing time out in several platforms
+ * @enablePreview
  * @library ../lib
  * @modules java.desktop
  *          jdk.compiler/com.sun.tools.javac.api
@@ -406,7 +407,7 @@ public class CheckAttributedTree {
                         that.hasTag(CLASSDEF);
             }
 
-            private final List<String> excludedFields = Arrays.asList("varargsElement", "targetType");
+            private final List<String> excludedFields = Arrays.asList("varargsElement", "targetType", "factoryProduct");
 
             void check(boolean ok, String label, Info self) {
                 if (!ok) {

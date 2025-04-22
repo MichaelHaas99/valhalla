@@ -47,6 +47,7 @@ class PlaceholderTable : public AllStatic {
   // on a class/classloader basis
   // so the head of that queue owns the token
   // and the rest of the threads return the result the first thread gets
+  // VALUE_OBJECT_FIELD: needed to check for inline type fields circularity
   enum classloadAction {
     LOAD_INSTANCE = 1,             // calling load_instance_class
     DETECT_CIRCULARITY = 2,        // loading while detecting class circularity

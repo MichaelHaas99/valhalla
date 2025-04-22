@@ -105,9 +105,10 @@ public class Flags {
     // bit positions, we translate them when reading and writing class
     // files into unique bits positions: ACC_SYNTHETIC <-> SYNTHETIC,
     // for example.
-    public static final int ACC_SUPER    = 0x0020;
+    public static final int ACC_IDENTITY = 0x0020;
     public static final int ACC_BRIDGE   = 0x0040;
     public static final int ACC_VARARGS  = 0x0080;
+    public static final int ACC_STRICT   = 0x0800;
     public static final int ACC_MODULE   = 0x8000;
 
     /* ***************************************
@@ -123,14 +124,24 @@ public class Flags {
      */
     public static final int HASINIT          = 1<<18;
 
+    /** Flag is set for a class or interface whose instances have identity
+     * i.e. any concrete class not declared with the modifier `value'
+     * (a) abstract class not declared `value'
+     * (b) older class files with ACC_SUPER bit set
+     */
+    public static final int IDENTITY_TYPE            = 1<<19;
+
     /** Class is an implicitly declared top level class.
      */
-    public static final int IMPLICIT_CLASS    = 1<<19;
+    public static final int IMPLICIT_CLASS    = 1<<23;
 
     /** Flag is set for compiler-generated anonymous method symbols
      *  that `own' an initializer block.
      */
     public static final int BLOCK            = 1<<20;
+
+    /** Marks a type as a value class */
+    public static final int VALUE_CLASS      = 1<<20;
 
     /** Flag is set for ClassSymbols that are being compiled from source.
      */
@@ -328,6 +339,11 @@ public class Flags {
     public static final long VALUE_BASED = 1L<<53; //ClassSymbols only
 
     /**
+     * Flag to indicate the given ClassSymbol is a value based.
+     */
+    public static final long MIGRATED_VALUE_CLASS = 1L<<57; //ClassSymbols only
+
+    /**
      * Flag to indicate the given symbol has a @Deprecated annotation.
      */
     public static final long DEPRECATED_ANNOTATION = 1L<<54;
@@ -410,6 +426,16 @@ public class Flags {
     public static final long NON_SEALED = 1L<<63; // ClassSymbols
 
     /**
+     * Flag to indicate that a class has at least one strict field
+     */
+    public static final long HAS_STRICT = 1L<<52; // ClassSymbols, temporary hack
+
+    /**
+     * Flag to indicate that a field is strict
+     */
+    public static final long STRICT = 1L<<53; // VarSymbols
+
+    /**
      * Describe modifier flags as they might appear in source code, i.e.,
      * separated by spaces and in the order suggested by JLS 8.1.1.
      */
@@ -423,8 +449,8 @@ public class Flags {
      */
     public static final int
         AccessFlags                       = PUBLIC | PROTECTED | PRIVATE,
-        LocalClassFlags                   = FINAL | ABSTRACT | STRICTFP | ENUM | SYNTHETIC,
-        StaticLocalFlags                  = LocalClassFlags | STATIC | INTERFACE,
+        LocalClassFlags                   = FINAL | ABSTRACT | STRICTFP | ENUM | SYNTHETIC | IDENTITY_TYPE,
+        StaticLocalClassFlags             = LocalClassFlags | STATIC | INTERFACE,
         MemberClassFlags                  = LocalClassFlags | INTERFACE | AccessFlags,
         MemberStaticClassFlags            = MemberClassFlags | STATIC,
         ClassFlags                        = LocalClassFlags | INTERFACE | PUBLIC | ANNOTATION,
@@ -438,11 +464,14 @@ public class Flags {
         RecordMethodFlags                 = AccessFlags | ABSTRACT | STATIC |
                                             SYNCHRONIZED | FINAL | STRICTFP;
     public static final long
-        ExtendedStandardFlags             = (long)StandardFlags | DEFAULT | SEALED | NON_SEALED,
-        ExtendedMemberClassFlags          = (long)MemberClassFlags | SEALED | NON_SEALED,
-        ExtendedMemberStaticClassFlags    = (long) MemberStaticClassFlags | SEALED | NON_SEALED,
-        ExtendedClassFlags                = (long)ClassFlags | SEALED | NON_SEALED,
-        ModifierFlags                     = ((long)StandardFlags & ~INTERFACE) | DEFAULT | SEALED | NON_SEALED,
+        ExtendedStandardFlags             = (long)StandardFlags | DEFAULT | SEALED | NON_SEALED | VALUE_CLASS,
+        ExtendedMemberClassFlags          = (long)MemberClassFlags | SEALED | NON_SEALED | VALUE_CLASS,
+        ExtendedMemberStaticClassFlags    = (long) MemberStaticClassFlags | SEALED | NON_SEALED | VALUE_CLASS,
+        ExtendedClassFlags                = (long)ClassFlags | SEALED | NON_SEALED | VALUE_CLASS,
+        ExtendedLocalClassFlags           = (long) LocalClassFlags | VALUE_CLASS,
+        ExtendedStaticLocalClassFlags     = (long) StaticLocalClassFlags | VALUE_CLASS,
+        ValueFieldFlags                   = (long) VarFlags | STRICT | FINAL,
+        ModifierFlags                     = ((long)StandardFlags & ~INTERFACE) | DEFAULT | SEALED | NON_SEALED | VALUE_CLASS,
         InterfaceMethodMask               = ABSTRACT | PRIVATE | STATIC | PUBLIC | STRICTFP | DEFAULT,
         AnnotationTypeElementMask         = ABSTRACT | PUBLIC,
         LocalVarFlags                     = FINAL | PARAMETER,
@@ -468,6 +497,7 @@ public class Flags {
             if (0 != (flags & NATIVE))    modifiers.add(Modifier.NATIVE);
             if (0 != (flags & STRICTFP))  modifiers.add(Modifier.STRICTFP);
             if (0 != (flags & DEFAULT))   modifiers.add(Modifier.DEFAULT);
+            if (0 != (flags & VALUE_CLASS))     modifiers.add(Modifier.VALUE);
             modifiers = Collections.unmodifiableSet(modifiers);
             modifierSets.put(flags, modifiers);
         }
@@ -489,7 +519,6 @@ public class Flags {
         return symbol.getConstValue() != null;
     }
 
-
     public enum Flag {
         PUBLIC(Flags.PUBLIC),
         PRIVATE(Flags.PRIVATE),
@@ -509,6 +538,13 @@ public class Flags {
         ANNOTATION(Flags.ANNOTATION),
         DEPRECATED(Flags.DEPRECATED),
         HASINIT(Flags.HASINIT),
+        IDENTITY_TYPE(Flags.IDENTITY_TYPE) {
+            @Override
+            public String toString() {
+                return "identity";
+            }
+        },
+        VALUE(Flags.VALUE_CLASS),
         IMPLICIT_CLASS(Flags.IMPLICIT_CLASS),
         BLOCK(Flags.BLOCK),
         FROM_SOURCE(Flags.FROM_SOURCE),
@@ -560,7 +596,8 @@ public class Flags {
             public String toString() {
                 return "non-sealed";
             }
-        };
+        },
+        STRICT(Flags.STRICT);
 
         Flag(long flag) {
             this.value = flag;

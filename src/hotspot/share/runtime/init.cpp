@@ -125,6 +125,7 @@ jint init_globals() {
   compilationPolicy_init();
   codeCache_init();
   VM_Version_init();              // depends on codeCache_init for emitting code
+  VMRegImpl::set_regName();       // need this before generate_stubs (for printing oop maps).
   // stub routines in initial blob are referenced by later generated code
   initial_stubs_init();
   // stack overflow exception blob is referenced by the interpreter
@@ -152,7 +153,6 @@ jint init_globals() {
   interpreter_init_stub();   // before methods get loaded
   accessFlags_init();
   InterfaceSupport_init();
-  VMRegImpl::set_regName();  // need this before generate_stubs (for printing oop maps).
   SharedRuntime::generate_stubs();
   return JNI_OK;
 }

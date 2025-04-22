@@ -25,6 +25,9 @@
 
 package java.lang.reflect;
 
+import jdk.internal.javac.PreviewFeature;
+import jdk.internal.misc.PreviewFeatures;
+
 import java.util.Collections;
 import java.util.Objects;
 import java.util.Map;
@@ -185,22 +188,52 @@ public enum AccessFlag {
      * @apiNote
      * In Java SE 8 and above, the JVM treats the {@code ACC_SUPER}
      * flag as set in every class file (JVMS {@jvms 4.1}).
+     * If preview feature is enabled,
+     * the {@code 0x0020} access flag bit is {@linkplain #IDENTITY IDENTITY access flag}.
      */
-    SUPER(0x0000_0020, false, Location.SET_CLASS, null),
+    SUPER(0x0000_0020, false,
+            PreviewFeatures.isEnabled() ? Location.EMPTY_SET : Location.SET_CLASS,
+            new Function<ClassFileFormatVersion, Set<Location>>() {
+            @Override
+            public Set<Location> apply(ClassFileFormatVersion cffv) {
+                return (cffv.compareTo(ClassFileFormatVersion.latest()) >= 0) &&
+                        PreviewFeatures.isEnabled() ? Location.EMPTY_SET : Location.SET_CLASS;
+            }
+        }),
+
+    /**
+     * The access flag {@code ACC_IDENTITY}, corresponding to the
+     * modifier {@link Modifier#IDENTITY identity}, with a mask
+     * value of <code>{@value "0x%04x" Modifier#IDENTITY}</code>.
+     * @jvms 4.1 -B. Class access and property modifiers
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    IDENTITY(Modifier.IDENTITY, false,
+            PreviewFeatures.isEnabled() ? Location.SET_CLASS_INNER_CLASS : Location.EMPTY_SET,
+            new Function<ClassFileFormatVersion, Set<Location>>() {
+                @Override
+                public Set<Location> apply(ClassFileFormatVersion cffv) {
+                    return (cffv.compareTo(ClassFileFormatVersion.latest()) >= 0
+                            && PreviewFeatures.isEnabled())
+                            ? Location.SET_CLASS_INNER_CLASS : Location.EMPTY_SET;
+                }
+            }),
 
     /**
      * The module flag {@code ACC_OPEN} with a mask value of {@code
      * 0x0020}.
      * @see java.lang.module.ModuleDescriptor#isOpen
      */
-        OPEN(0x0000_0020, false, Location.SET_MODULE,
-             new Function<ClassFileFormatVersion, Set<Location>>() {
-                 @Override
-                 public Set<Location> apply(ClassFileFormatVersion cffv) {
-                     return (cffv.compareTo(ClassFileFormatVersion.RELEASE_9) >= 0 ) ?
-                         Location.SET_MODULE:
-                         Location.EMPTY_SET;}
-             }),
+    OPEN(0x0000_0020, false, Location.SET_MODULE,
+         new Function<ClassFileFormatVersion, Set<Location>>() {
+             @Override
+             public Set<Location> apply(ClassFileFormatVersion cffv) {
+                 return (cffv.compareTo(ClassFileFormatVersion.RELEASE_9) >= 0 ) ?
+                     Location.SET_MODULE:
+                     Location.EMPTY_SET;}
+         }),
 
     /**
      * The module requires flag {@code ACC_TRANSITIVE} with a mask
@@ -237,7 +270,7 @@ public enum AccessFlag {
                              Location.EMPTY_SET;}
                  }),
 
-   /**
+    /**
      * The access flag {@code ACC_VOLATILE}, corresponding to the
      * source modifier {@link Modifier#VOLATILE volatile}, with a mask
      * value of <code>{@value "0x%04x" Modifier#VOLATILE}</code>.
@@ -334,6 +367,30 @@ public enum AccessFlag {
                        Location.SET_METHOD:
                        Location.EMPTY_SET;}
            }),
+
+    /**
+     * The access flag {@code ACC_STRICT}, with a mask
+     * value of <code>{@value "0x%04x" Modifier#STRICT}</code>.
+     * @jvms 4.5 Fields
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    STRICT_FIELD(Modifier.STRICT, false,
+            PreviewFeatures.isEnabled() ? Location.SET_FIELD : Location.EMPTY_SET,
+            new Function<ClassFileFormatVersion, Set<Location>>() {
+                @Override
+                public Set<Location> apply(ClassFileFormatVersion cffv) {
+                    return (cffv.compareTo(ClassFileFormatVersion.latest()) >= 0
+                            && PreviewFeatures.isEnabled())
+                            ? Location.SET_FIELD : Location.EMPTY_SET;
+                }
+            }) {
+        @Override
+        public String toString() {
+            return "STRICT";
+        }
+    },
 
     /**
      * The access flag {@code ACC_SYNTHETIC} with a mask value of
@@ -486,15 +543,18 @@ public enum AccessFlag {
      * @param mask bit mask of access flags
      * @param location context to interpret mask value
      * @throws IllegalArgumentException if the mask contains bit
-     * positions not support for the location in question
+     * positions not supported for the location in question
      */
     public static Set<AccessFlag> maskToAccessFlags(int mask, Location location) {
         Set<AccessFlag> result = java.util.EnumSet.noneOf(AccessFlag.class);
         for (var accessFlag : LocationToFlags.locationToFlags.get(location)) {
             int accessMask = accessFlag.mask();
-            if ((mask &  accessMask) != 0) {
+            if ((mask & accessMask) != 0) {
                 result.add(accessFlag);
                 mask = mask & ~accessMask;
+                if (mask == 0) {
+                    break;      // no more mask bits
+                }
             }
         }
         if (mask != 0) {
@@ -504,6 +564,44 @@ public enum AccessFlag {
         }
         return Collections.unmodifiableSet(result);
     }
+
+    /**
+     * {@return an unmodifiable set of access flags for the given mask value
+     * appropriate for the location in question}
+     *
+     * @param mask bit mask of access flags
+     * @param location context to interpret mask value
+     * @param cffv the class file format version
+     * @throws IllegalArgumentException if the mask contains bit
+     * positions not supported for the location in question
+     *
+     * @since Valhalla
+     */
+    public static Set<AccessFlag> maskToAccessFlags(int mask, Location location,
+                                                    ClassFileFormatVersion cffv) {
+        Set<AccessFlag> result = java.util.EnumSet.noneOf(AccessFlag.class);
+        for (var accessFlag : AccessFlag.values()) {
+            int accessMask = accessFlag.mask();
+            if ((mask & accessMask) != 0) {
+                var locations = accessFlag.locations(cffv);
+                if (locations.contains(location)) {
+                    result.add(accessFlag);
+                    mask = mask & ~accessMask;
+                    if (mask == 0) {
+                        break;      // no more mask bits
+                    }
+                }
+            }
+        }
+        if (mask != 0) {
+            throw new IllegalArgumentException("Unmatched bit position 0x" +
+                                               Integer.toHexString(mask) +
+                                               " for location " + location +
+                                               " for class file format version " + cffv);
+        }
+        return Collections.unmodifiableSet(result);
+    }
+
 
     /**
      * A location within a class file where flags can be applied.
@@ -623,23 +721,28 @@ public enum AccessFlag {
     private static class LocationToFlags {
         private static Map<Location, Set<AccessFlag>> locationToFlags =
             Map.ofEntries(entry(Location.CLASS,
-                                Set.of(PUBLIC, FINAL, SUPER,
+                                Set.of(PUBLIC, FINAL, (PreviewFeatures.isEnabled() ? IDENTITY : SUPER),
                                        INTERFACE, ABSTRACT,
                                        SYNTHETIC, ANNOTATION,
                                        ENUM, AccessFlag.MODULE)),
                           entry(Location.FIELD,
-                                Set.of(PUBLIC, PRIVATE, PROTECTED,
-                                       STATIC, FINAL, VOLATILE,
-                                       TRANSIENT, SYNTHETIC, ENUM)),
+                                PreviewFeatures.isEnabled() ?
+                                        // STRICT_FIELD should be included only if preview is enabled
+                                        Set.of(PUBLIC, PRIVATE, PROTECTED,
+                                            STATIC, FINAL, VOLATILE,
+                                            TRANSIENT, SYNTHETIC, ENUM, STRICT_FIELD) :
+                                        Set.of(PUBLIC, PRIVATE, PROTECTED,
+                                                STATIC, FINAL, VOLATILE,
+                                                TRANSIENT, SYNTHETIC, ENUM)),
                           entry(Location.METHOD,
                                 Set.of(PUBLIC, PRIVATE, PROTECTED,
                                        STATIC, FINAL, SYNCHRONIZED,
                                        BRIDGE, VARARGS, NATIVE,
                                        ABSTRACT, STRICT, SYNTHETIC)),
                           entry(Location.INNER_CLASS,
-                                Set.of(PUBLIC, PRIVATE, PROTECTED,
-                                       STATIC, FINAL, INTERFACE, ABSTRACT,
-                                       SYNTHETIC, ANNOTATION, ENUM)),
+                                          Set.of(PUBLIC, PRIVATE, PROTECTED, (PreviewFeatures.isEnabled() ? IDENTITY : SUPER),
+                                                  STATIC, FINAL, INTERFACE, ABSTRACT,
+                                                  SYNTHETIC, ANNOTATION, ENUM)),
                           entry(Location.METHOD_PARAMETER,
                                 Set.of(FINAL, SYNTHETIC, MANDATED)),
                           entry(Location.MODULE,

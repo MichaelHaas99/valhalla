@@ -28,9 +28,9 @@
 #include "ci/ciMethod.hpp"
 #include "ci/ciMethodBlocks.hpp"
 #include "ci/ciMethodData.hpp"
+#include "ci/ciReplay.hpp"
 #include "ci/ciStreams.hpp"
 #include "ci/ciSymbol.hpp"
-#include "ci/ciReplay.hpp"
 #include "ci/ciSymbols.hpp"
 #include "ci/ciUtilities.inline.hpp"
 #include "compiler/abstractCompiler.hpp"
@@ -50,6 +50,7 @@
 #include "prims/methodHandles.hpp"
 #include "runtime/deoptimization.hpp"
 #include "runtime/handles.inline.hpp"
+#include "runtime/sharedRuntime.hpp"
 #include "utilities/bitMap.inline.hpp"
 #include "utilities/xmlstream.hpp"
 #ifdef COMPILER2
@@ -660,6 +661,60 @@ bool ciMethod::parameter_profiled_type(int i, ciKlass*& type, ProfilePtrKind& pt
   return false;
 }
 
+bool ciMethod::array_access_profiled_type(int bci, ciKlass*& array_type, ciKlass*& element_type, ProfilePtrKind& element_ptr, bool &flat_array, bool &null_free_array) {
+  if (method_data() != nullptr && method_data()->is_mature()) {
+    ciProfileData* data = method_data()->bci_to_data(bci);
+    if (data != nullptr) {
+      if (data->is_ArrayLoadData()) {
+        ciArrayLoadData* array_access = (ciArrayLoadData*) data->as_ArrayLoadData();
+        array_type = array_access->array()->valid_type();
+        element_type = array_access->element()->valid_type();
+        element_ptr = array_access->element()->ptr_kind();
+        flat_array = array_access->flat_array();
+        null_free_array = array_access->null_free_array();
+        return true;
+      } else if (data->is_ArrayStoreData()) {
+        ciArrayStoreData* array_access = (ciArrayStoreData*) data->as_ArrayStoreData();
+        array_type = array_access->array()->valid_type();
+        flat_array = array_access->flat_array();
+        null_free_array = array_access->null_free_array();
+        ciCallProfile call_profile = call_profile_at_bci(bci);
+        if (call_profile.morphism() == 1) {
+          element_type = call_profile.receiver(0);
+        } else {
+          element_type = nullptr;
+        }
+        if (!array_access->null_seen()) {
+          element_ptr = ProfileNeverNull;
+        } else if (call_profile.count() == 0) {
+          element_ptr = ProfileAlwaysNull;
+        } else {
+          element_ptr = ProfileMaybeNull;
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool ciMethod::acmp_profiled_type(int bci, ciKlass*& left_type, ciKlass*& right_type, ProfilePtrKind& left_ptr, ProfilePtrKind& right_ptr, bool &left_inline_type, bool &right_inline_type) {
+  if (method_data() != nullptr && method_data()->is_mature()) {
+    ciProfileData* data = method_data()->bci_to_data(bci);
+    if (data != nullptr && data->is_ACmpData()) {
+      ciACmpData* acmp = (ciACmpData*)data->as_ACmpData();
+      left_type = acmp->left()->valid_type();
+      right_type = acmp->right()->valid_type();
+      left_ptr = acmp->left()->ptr_kind();
+      right_ptr = acmp->right()->ptr_kind();
+      left_inline_type = acmp->left_inline_type();
+      right_inline_type = acmp->right_inline_type();
+      return true;
+    }
+  }
+  return false;
+}
+
 
 // ------------------------------------------------------------------
 // ciMethod::find_monomorphic_target
@@ -966,10 +1021,13 @@ bool ciMethod::is_compiled_lambda_form() const {
 }
 
 // ------------------------------------------------------------------
-// ciMethod::is_object_initializer
+// ciMethod::is_object_constructor
 //
-bool ciMethod::is_object_initializer() const {
-   return name() == ciSymbols::object_initializer_name();
+bool ciMethod::is_object_constructor() const {
+   return (name() == ciSymbols::object_initializer_name()
+           && signature()->return_type()->is_void());
+   // Note:  We can't test is_static, because that would
+   // require the method to be loaded.  Sometimes it isn't.
 }
 
 // ------------------------------------------------------------------
@@ -1491,6 +1549,25 @@ bool ciMethod::is_consistent_info(ciMethod* declared_method, ciMethod* resolved_
 }
 
 // ------------------------------------------------------------------
+
+bool ciMethod::is_scalarized_arg(int idx) const {
+  VM_ENTRY_MARK;
+  return get_Method()->is_scalarized_arg(idx);
+}
+
+bool ciMethod::has_scalarized_args() const {
+  VM_ENTRY_MARK;
+  return get_Method()->has_scalarized_args();
+}
+
+const GrowableArray<SigEntry>* ciMethod::get_sig_cc() const {
+  VM_ENTRY_MARK;
+  if (get_Method()->adapter() == nullptr) {
+    return nullptr;
+  }
+  return get_Method()->adapter()->get_sig_cc();
+}
+
 // ciMethod::is_old
 //
 // Return true for redefined methods

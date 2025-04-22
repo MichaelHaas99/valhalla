@@ -42,20 +42,14 @@ class ObjArrayKlass : public ArrayKlass {
  private:
   // If you add a new field that points to any metaspace object, you
   // must add this field to ObjArrayKlass::metaspace_pointers_do().
-  Klass* _element_klass;            // The klass of the elements of this array type
   Klass* _bottom_klass;             // The one-dimensional type (InstanceKlass or TypeArrayKlass)
 
   // Constructor
-  ObjArrayKlass(int n, Klass* element_klass, Symbol* name);
-  static ObjArrayKlass* allocate(ClassLoaderData* loader_data, int n, Klass* k, Symbol* name, TRAPS);
+  ObjArrayKlass(int n, Klass* element_klass, Symbol* name, bool null_free);
+  static ObjArrayKlass* allocate(ClassLoaderData* loader_data, int n, Klass* k, Symbol* name, bool null_free, TRAPS);
  public:
   // For dummy objects
   ObjArrayKlass() {}
-
-  // Instance variables
-  Klass* element_klass() const      { return _element_klass; }
-  void set_element_klass(Klass* k)  { _element_klass = k; }
-  Klass** element_klass_addr()      { return &_element_klass; }
 
   Klass* bottom_klass() const       { return _bottom_klass; }
   void set_bottom_klass(Klass* k)   { _bottom_klass = k; }
@@ -63,9 +57,6 @@ class ObjArrayKlass : public ArrayKlass {
 
   ModuleEntry* module() const;
   PackageEntry* package() const;
-
-  // Compiler/Interpreter offset
-  static ByteSize element_klass_offset() { return byte_offset_of(ObjArrayKlass, _element_klass); }
 
   // Dispatched operation
   bool can_be_primary_super_slow() const;
@@ -76,7 +67,8 @@ class ObjArrayKlass : public ArrayKlass {
 
   // Allocation
   static ObjArrayKlass* allocate_objArray_klass(ClassLoaderData* loader_data,
-                                                int n, Klass* element_klass, TRAPS);
+                                                int n, Klass* element_klass,
+                                                bool null_free, TRAPS);
 
   objArrayOop allocate(int length, TRAPS);
   oop multi_allocate(int rank, jint* sizes, TRAPS);

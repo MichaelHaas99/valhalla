@@ -75,7 +75,10 @@ TypeArrayKlass* TypeArrayKlass::allocate(ClassLoaderData* loader_data, BasicType
 }
 
 u2 TypeArrayKlass::compute_modifier_flags() const {
-  return JVM_ACC_ABSTRACT | JVM_ACC_FINAL | JVM_ACC_PUBLIC;
+  u2 identity_flag = (Arguments::enable_preview()) ? JVM_ACC_IDENTITY : 0;
+
+  return JVM_ACC_ABSTRACT | JVM_ACC_FINAL | JVM_ACC_PUBLIC
+                    | identity_flag;
 }
 
 TypeArrayKlass::TypeArrayKlass(BasicType type, Symbol* name) : ArrayKlass(name, Kind) {
@@ -98,7 +101,6 @@ typeArrayOop TypeArrayKlass::allocate_common(int length, bool do_zero, TRAPS) {
 }
 
 oop TypeArrayKlass::multi_allocate(int rank, jint* last_size, TRAPS) {
-  // For typeArrays this is only called for the last dimension
   assert(rank == 1, "just checking");
   int length = *last_size;
   return allocate(length, THREAD);

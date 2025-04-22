@@ -32,9 +32,15 @@
 #include "jni.h"
 #include "jvm.h"
 #include "memory/allocation.inline.hpp"
+#include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
+#include "logging/log.hpp"
+#include "logging/logStream.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/fieldStreams.inline.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
+#include "oops/inlineKlass.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/klass.inline.hpp"
 #include "oops/objArrayOop.inline.hpp"
@@ -42,6 +48,7 @@
 #include "oops/typeArrayOop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/unsafe.hpp"
+#include "runtime/fieldDescriptor.inline.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
@@ -168,7 +175,6 @@ jlong Unsafe_field_offset_from_byte_offset(jlong byte_offset) {
   return byte_offset;
 }
 
-
 ///// Data read/writes on the Java heap and in native (off-heap) memory
 
 /**
@@ -247,9 +253,9 @@ public:
   ATTRIBUTE_NO_UBSAN
   void put(T x) {
     GuardUnsafeAccess guard(_thread);
+    assert(_obj == nullptr || !_obj->is_inline_type() || _obj->mark().is_larval_state(), "must be an object instance or a larval inline type");
     *addr() = normalize_for_write(x);
   }
-
 
   T get_volatile() {
     GuardUnsafeAccess guard(_thread);
@@ -262,6 +268,68 @@ public:
     RawAccess<MO_SEQ_CST>::store(addr(), normalize_for_write(x));
   }
 };
+
+#ifdef ASSERT
+/*
+ * Get the field descriptor of the field of the given object at the given offset.
+ */
+static bool get_field_descriptor(oop p, jlong offset, fieldDescriptor* fd) {
+  bool found = false;
+  Klass* k = p->klass();
+  if (k->is_instance_klass()) {
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    found = ik->find_field_from_offset((int)offset, false, fd);
+    if (!found && ik->is_mirror_instance_klass()) {
+      Klass* k2 = java_lang_Class::as_Klass(p);
+      if (k2->is_instance_klass()) {
+        ik = InstanceKlass::cast(k2);
+        found = ik->find_field_from_offset((int)offset, true, fd);
+      }
+    }
+  }
+  return found;
+}
+#endif // ASSERT
+
+static void assert_and_log_unsafe_value_access(oop p, jlong offset, InlineKlass* vk) {
+  Klass* k = p->klass();
+#ifdef ASSERT
+  if (k->is_instance_klass()) {
+    assert_field_offset_sane(p, offset);
+    fieldDescriptor fd;
+    bool found = get_field_descriptor(p, offset, &fd);
+    if (found) {
+      assert(found, "value field not found");
+      assert(fd.is_flat(), "field not flat");
+    } else {
+      if (log_is_enabled(Trace, valuetypes)) {
+        log_trace(valuetypes)("not a field in %s at offset " UINT64_FORMAT_X,
+                              p->klass()->external_name(), (uint64_t)offset);
+      }
+    }
+  } else if (k->is_flatArray_klass()) {
+    FlatArrayKlass* vak = FlatArrayKlass::cast(k);
+    int index = (offset - vak->array_header_in_bytes()) / vak->element_byte_size();
+    address dest = (address)((flatArrayOop)p)->value_at_addr(index, vak->layout_helper());
+    assert(dest == (cast_from_oop<address>(p) + offset), "invalid offset");
+  } else {
+    ShouldNotReachHere();
+  }
+#endif // ASSERT
+  if (log_is_enabled(Trace, valuetypes)) {
+    if (k->is_flatArray_klass()) {
+      FlatArrayKlass* vak = FlatArrayKlass::cast(k);
+      int index = (offset - vak->array_header_in_bytes()) / vak->element_byte_size();
+      address dest = (address)((flatArrayOop)p)->value_at_addr(index, vak->layout_helper());
+      log_trace(valuetypes)("%s array type %s index %d element size %d offset " UINT64_FORMAT_X " at " INTPTR_FORMAT,
+                            p->klass()->external_name(), vak->external_name(),
+                            index, vak->element_byte_size(), (uint64_t)offset, p2i(dest));
+    } else {
+      log_trace(valuetypes)("%s field type %s at offset " UINT64_FORMAT_X,
+                            p->klass()->external_name(), vk->external_name(), (uint64_t)offset);
+    }
+  }
+}
 
 // These functions allow a null base pointer with an arbitrary address.
 // But if the base pointer is non-null, the offset should make some sense.
@@ -277,7 +345,191 @@ UNSAFE_ENTRY(void, Unsafe_PutReference(JNIEnv *env, jobject unsafe, jobject obj,
   oop x = JNIHandles::resolve(x_h);
   oop p = JNIHandles::resolve(obj);
   assert_field_offset_sane(p, offset);
+  assert(!p->is_inline_type() || p->mark().is_larval_state(), "must be an object instance or a larval inline type");
   HeapAccess<ON_UNKNOWN_OOP_REF>::oop_store_at(p, offset, x);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jlong, Unsafe_ValueHeaderSize(JNIEnv *env, jobject unsafe, jclass c)) {
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(c));
+  InlineKlass* vk = InlineKlass::cast(k);
+  return vk->payload_offset();
+} UNSAFE_END
+
+UNSAFE_ENTRY(jboolean, Unsafe_IsFlatField(JNIEnv *env, jobject unsafe, jobject o)) {
+  oop f = JNIHandles::resolve_non_null(o);
+  Klass* k = java_lang_Class::as_Klass(java_lang_reflect_Field::clazz(f));
+  int slot = java_lang_reflect_Field::slot(f);
+  return InstanceKlass::cast(k)->field_is_flat(slot);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jboolean, Unsafe_HasNullMarker(JNIEnv *env, jobject unsafe, jobject o)) {
+  oop f = JNIHandles::resolve_non_null(o);
+  Klass* k = java_lang_Class::as_Klass(java_lang_reflect_Field::clazz(f));
+  int slot = java_lang_reflect_Field::slot(f);
+  return InstanceKlass::cast(k)->field_has_null_marker(slot);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jint, Unsafe_NullMarkerOffset(JNIEnv *env, jobject unsafe, jobject o)) {
+  oop f = JNIHandles::resolve_non_null(o);
+  Klass* k = java_lang_Class::as_Klass(java_lang_reflect_Field::clazz(f));
+  int slot = java_lang_reflect_Field::slot(f);
+  return InstanceKlass::cast(k)->null_marker_offset(slot);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jint, Unsafe_ArrayLayout(JNIEnv *env, jobject unsafe, jclass c)) {
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(c));
+  if (!k->is_flatArray_klass()) {
+    return (jint)LayoutKind::REFERENCE;
+  } else {
+    return (jint)FlatArrayKlass::cast(k)->layout_kind();
+  }
+} UNSAFE_END
+
+UNSAFE_ENTRY(jint, Unsafe_FieldLayout(JNIEnv *env, jobject unsafe, jobject field)) {
+  assert(field != nullptr, "field must not be null");
+
+  oop reflected   = JNIHandles::resolve_non_null(field);
+  oop mirror      = java_lang_reflect_Field::clazz(reflected);
+  Klass* k        = java_lang_Class::as_Klass(mirror);
+  int slot        = java_lang_reflect_Field::slot(reflected);
+  int modifiers   = java_lang_reflect_Field::modifiers(reflected);
+
+  if ((modifiers & JVM_ACC_STATIC) != 0) {
+    return (jint)LayoutKind::REFERENCE; // static fields are never flat
+  } else {
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    if (ik->field_is_flat(slot)) {
+      return (jint)ik->inline_layout_info(slot).kind();
+    } else {
+      return (jint)LayoutKind::REFERENCE;
+    }
+  }
+} UNSAFE_END
+
+UNSAFE_ENTRY(jarray, Unsafe_NewSpecialArray(JNIEnv *env, jobject unsafe, jclass elmClass, jint len, jint layoutKind)) {
+  oop mirror = JNIHandles::resolve_non_null(elmClass);
+  Klass* klass = java_lang_Class::as_Klass(mirror);
+  klass->initialize(CHECK_NULL);
+  if (len < 0) {
+    THROW_MSG_NULL(vmSymbols::java_lang_IllegalArgumentException(), "Array length is negative");
+  }
+  if (klass->is_identity_class()) {
+    THROW_MSG_NULL(vmSymbols::java_lang_IllegalArgumentException(), "Element class is not a value class");
+  }
+  if (klass->is_abstract()) {
+    THROW_MSG_NULL(vmSymbols::java_lang_IllegalArgumentException(), "Element class is abstract");
+  }
+  LayoutKind lk = static_cast<LayoutKind>(layoutKind);
+  if (lk <= LayoutKind::REFERENCE || lk >= LayoutKind::UNKNOWN) {
+    THROW_MSG_NULL(vmSymbols::java_lang_IllegalArgumentException(), "Invalid layout kind");
+  }
+  InlineKlass* vk = InlineKlass::cast(klass);
+  // WARNING: test below will need modifications when flat layouts supported for fields
+  // but not for arrays are introduce (NULLABLE_NON_ATOMIC_FLAT for instance)
+  if (!UseArrayFlattening || !vk->is_layout_supported(lk)) {
+    THROW_MSG_NULL(vmSymbols::java_lang_UnsupportedOperationException(), "Layout not supported");
+  }
+  oop array = oopFactory::new_flatArray(vk, len, lk, CHECK_NULL);
+  return (jarray) JNIHandles::make_local(THREAD, array);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jboolean, Unsafe_IsFlatArray(JNIEnv *env, jobject unsafe, jclass c)) {
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(c));
+  return k->is_flatArray_klass();
+} UNSAFE_END
+
+UNSAFE_ENTRY(jobject, Unsafe_GetValue(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jclass vc)) {
+  oop base = JNIHandles::resolve(obj);
+  if (base == nullptr) {
+    THROW_NULL(vmSymbols::java_lang_NullPointerException());
+  }
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(vc));
+  InlineKlass* vk = InlineKlass::cast(k);
+  assert_and_log_unsafe_value_access(base, offset, vk);
+  LayoutKind lk = LayoutKind::UNKNOWN;
+  if (base->is_array()) {
+    FlatArrayKlass* fak = FlatArrayKlass::cast(base->klass());
+    lk = fak->layout_kind();
+  } else {
+    fieldDescriptor fd;
+    InstanceKlass::cast(base->klass())->find_field_from_offset(offset, false, &fd);
+    lk = fd.field_holder()->inline_layout_info(fd.index()).kind();
+  }
+  Handle base_h(THREAD, base);
+  oop v = vk->read_payload_from_addr(base_h(), offset, lk, CHECK_NULL);
+  return JNIHandles::make_local(THREAD, v);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jobject, Unsafe_GetFlatValue(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jint layoutKind, jclass vc)) {
+  assert(layoutKind != (int)LayoutKind::REFERENCE, "This method handles only flat layouts");
+  oop base = JNIHandles::resolve(obj);
+  if (base == nullptr) {
+    THROW_NULL(vmSymbols::java_lang_NullPointerException());
+  }
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(vc));
+  InlineKlass* vk = InlineKlass::cast(k);
+  assert_and_log_unsafe_value_access(base, offset, vk);
+  LayoutKind lk = (LayoutKind)layoutKind;
+  Handle base_h(THREAD, base);
+  oop v = vk->read_payload_from_addr(base_h(), offset, lk, CHECK_NULL);
+  return JNIHandles::make_local(THREAD, v);
+} UNSAFE_END
+
+UNSAFE_ENTRY(void, Unsafe_PutValue(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jclass vc, jobject value)) {
+  oop base = JNIHandles::resolve(obj);
+  if (base == nullptr) {
+    THROW(vmSymbols::java_lang_NullPointerException());
+  }
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(vc));
+  InlineKlass* vk = InlineKlass::cast(k);
+  assert(!base->is_inline_type() || base->mark().is_larval_state(), "must be an object instance or a larval inline type");
+  assert_and_log_unsafe_value_access(base, offset, vk);
+  LayoutKind lk = LayoutKind::UNKNOWN;
+  if (base->is_array()) {
+    FlatArrayKlass* fak = FlatArrayKlass::cast(base->klass());
+    lk = fak->layout_kind();
+  } else {
+    fieldDescriptor fd;
+    InstanceKlass::cast(base->klass())->find_field_from_offset(offset, false, &fd);
+    lk = fd.field_holder()->inline_layout_info(fd.index()).kind();
+  }
+  oop v = JNIHandles::resolve(value);
+  vk->write_value_to_addr(v, ((char*)(oopDesc*)base) + offset, lk, true, CHECK);
+} UNSAFE_END
+
+UNSAFE_ENTRY(void, Unsafe_PutFlatValue(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jint layoutKind, jclass vc, jobject value)) {
+  assert(layoutKind != (int)LayoutKind::REFERENCE, "This method handles only flat layouts");
+  oop base = JNIHandles::resolve(obj);
+  if (base == nullptr) {
+    THROW(vmSymbols::java_lang_NullPointerException());
+  }
+  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(vc));
+  InlineKlass* vk = InlineKlass::cast(k);
+  assert(!base->is_inline_type() || base->mark().is_larval_state(), "must be an object instance or a larval inline type");
+  assert_and_log_unsafe_value_access(base, offset, vk);
+  LayoutKind lk = (LayoutKind)layoutKind;
+  oop v = JNIHandles::resolve(value);
+  vk->write_value_to_addr(v, ((char*)(oopDesc*)base) + offset, lk, true, CHECK);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jobject, Unsafe_MakePrivateBuffer(JNIEnv *env, jobject unsafe, jobject value)) {
+  oop v = JNIHandles::resolve_non_null(value);
+  assert(v->is_inline_type(), "must be an inline type instance");
+  Handle vh(THREAD, v);
+  InlineKlass* vk = InlineKlass::cast(v->klass());
+  instanceOop new_value = vk->allocate_instance_buffer(CHECK_NULL);
+  vk->copy_payload_to_addr(vk->payload_addr(vh()), vk->payload_addr(new_value), LayoutKind::BUFFERED, false);
+  markWord mark = new_value->mark();
+  new_value->set_mark(mark.enter_larval_state());
+  return JNIHandles::make_local(THREAD, new_value);
+} UNSAFE_END
+
+UNSAFE_ENTRY(jobject, Unsafe_FinishPrivateBuffer(JNIEnv *env, jobject unsafe, jobject value)) {
+  oop v = JNIHandles::resolve(value);
+  assert(v->mark().is_larval_state(), "must be a larval value");
+  markWord mark = v->mark();
+  v->set_mark(mark.exit_larval_state());
+  return JNIHandles::make_local(THREAD, v);
 } UNSAFE_END
 
 UNSAFE_ENTRY(jobject, Unsafe_GetReferenceVolatile(JNIEnv *env, jobject unsafe, jobject obj, jlong offset)) {
@@ -600,6 +852,11 @@ static void getBaseAndScale(int& base, int& scale, jclass clazz, TRAPS) {
     base  = tak->array_header_in_bytes();
     assert(base == arrayOopDesc::base_offset_in_bytes(tak->element_type()), "array_header_size semantics ok");
     scale = (1 << tak->log2_element_size());
+  } else if (k->is_flatArray_klass()) {
+    FlatArrayKlass* vak = FlatArrayKlass::cast(k);
+    InlineKlass* vklass = vak->element_klass();
+    base = vak->array_header_in_bytes();
+    scale = vak->element_byte_size();
   } else {
     ShouldNotReachHere();
   }
@@ -633,6 +890,12 @@ UNSAFE_ENTRY(jint, Unsafe_ArrayIndexScale0(JNIEnv *env, jobject unsafe, jclass c
   // but requires it to be linear in byte offset.
   return field_offset_from_byte_offset(scale) - field_offset_from_byte_offset(0);
 } UNSAFE_END
+
+
+UNSAFE_ENTRY(jlong, Unsafe_GetObjectSize0(JNIEnv* env, jobject o, jobject obj))
+  oop p = JNIHandles::resolve(obj);
+  return p->size() * HeapWordSize;
+UNSAFE_END
 
 
 static inline void throw_new(JNIEnv *env, const char *ename) {
@@ -854,10 +1117,10 @@ UNSAFE_ENTRY(jint, Unsafe_GetLoadAverage0(JNIEnv *env, jobject unsafe, jdoubleAr
 #define FN_PTR(f) CAST_FROM_FN_PTR(void*, &f)
 
 #define DECLARE_GETPUTOOP(Type, Desc) \
-    {CC "get" #Type,      CC "(" OBJ "J)" #Desc,       FN_PTR(Unsafe_Get##Type)}, \
-    {CC "put" #Type,      CC "(" OBJ "J" #Desc ")V",   FN_PTR(Unsafe_Put##Type)}, \
-    {CC "get" #Type "Volatile",      CC "(" OBJ "J)" #Desc,       FN_PTR(Unsafe_Get##Type##Volatile)}, \
-    {CC "put" #Type "Volatile",      CC "(" OBJ "J" #Desc ")V",   FN_PTR(Unsafe_Put##Type##Volatile)}
+    {CC "get"  #Type,      CC "(" OBJ "J)" #Desc,                 FN_PTR(Unsafe_Get##Type)}, \
+    {CC "put"  #Type,      CC "(" OBJ "J" #Desc ")V",             FN_PTR(Unsafe_Put##Type)}, \
+    {CC "get"  #Type "Volatile",      CC "(" OBJ "J)" #Desc,      FN_PTR(Unsafe_Get##Type##Volatile)}, \
+    {CC "put"  #Type "Volatile",      CC "(" OBJ "J" #Desc ")V",  FN_PTR(Unsafe_Put##Type##Volatile)}
 
 
 static JNINativeMethod jdk_internal_misc_Unsafe_methods[] = {
@@ -865,6 +1128,21 @@ static JNINativeMethod jdk_internal_misc_Unsafe_methods[] = {
     {CC "putReference",         CC "(" OBJ "J" OBJ ")V",  FN_PTR(Unsafe_PutReference)},
     {CC "getReferenceVolatile", CC "(" OBJ "J)" OBJ,      FN_PTR(Unsafe_GetReferenceVolatile)},
     {CC "putReferenceVolatile", CC "(" OBJ "J" OBJ ")V",  FN_PTR(Unsafe_PutReferenceVolatile)},
+
+    {CC "isFlatArray",          CC "(" CLS ")Z",          FN_PTR(Unsafe_IsFlatArray)},
+    {CC "isFlatField0",         CC "(" OBJ ")Z",          FN_PTR(Unsafe_IsFlatField)},
+    {CC "hasNullMarker0",       CC "(" OBJ ")Z",          FN_PTR(Unsafe_HasNullMarker)},
+    {CC "nullMarkerOffset0",    CC "(" OBJ ")I",          FN_PTR(Unsafe_NullMarkerOffset)},
+    {CC "arrayLayout0",         CC "(" OBJ ")I",          FN_PTR(Unsafe_ArrayLayout)},
+    {CC "fieldLayout0",         CC "(" OBJ ")I",          FN_PTR(Unsafe_FieldLayout)},
+    {CC "newSpecialArray",      CC "(" CLS "II)[" OBJ,    FN_PTR(Unsafe_NewSpecialArray)},
+    {CC "getValue",             CC "(" OBJ "J" CLS ")" OBJ, FN_PTR(Unsafe_GetValue)},
+    {CC "getFlatValue",         CC "(" OBJ "JI" CLS ")" OBJ, FN_PTR(Unsafe_GetFlatValue)},
+    {CC "putValue",             CC "(" OBJ "J" CLS OBJ ")V", FN_PTR(Unsafe_PutValue)},
+    {CC "putFlatValue",         CC "(" OBJ "JI" CLS OBJ ")V", FN_PTR(Unsafe_PutFlatValue)},
+    {CC "makePrivateBuffer",     CC "(" OBJ ")" OBJ,      FN_PTR(Unsafe_MakePrivateBuffer)},
+    {CC "finishPrivateBuffer",   CC "(" OBJ ")" OBJ,      FN_PTR(Unsafe_FinishPrivateBuffer)},
+    {CC "valueHeaderSize",       CC "(" CLS ")J",         FN_PTR(Unsafe_ValueHeaderSize)},
 
     {CC "getUncompressedObject", CC "(" ADR ")" OBJ,  FN_PTR(Unsafe_GetUncompressedObject)},
 
@@ -888,6 +1166,7 @@ static JNINativeMethod jdk_internal_misc_Unsafe_methods[] = {
     {CC "ensureClassInitialized0", CC "(" CLS ")V",      FN_PTR(Unsafe_EnsureClassInitialized0)},
     {CC "arrayBaseOffset0",   CC "(" CLS ")I",           FN_PTR(Unsafe_ArrayBaseOffset0)},
     {CC "arrayIndexScale0",   CC "(" CLS ")I",           FN_PTR(Unsafe_ArrayIndexScale0)},
+    {CC "getObjectSize0",     CC "(Ljava/lang/Object;)J", FN_PTR(Unsafe_GetObjectSize0)},
 
     {CC "defineClass0",       CC "(" DC_Args ")" CLS,    FN_PTR(Unsafe_DefineClass0)},
     {CC "allocateInstance",   CC "(" CLS ")" OBJ,        FN_PTR(Unsafe_AllocateInstance)},

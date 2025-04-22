@@ -121,10 +121,9 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(DecoratorSet decorators,
     return nullptr;
   }
 
-  // Prevent resurrection of unreachable objects that are visited during
-  // concurrent class-unloading.
+  // Allow runtime to see unreachable objects that are visited during concurrent class-unloading.
   if ((decorators & AS_NO_KEEPALIVE) != 0 &&
-      _heap->is_evacuation_in_progress() &&
+      _heap->is_concurrent_weak_root_in_progress() &&
       !_heap->marking_context()->is_marked(obj)) {
     return obj;
   }
@@ -153,10 +152,19 @@ inline void ShenandoahBarrierSet::enqueue(oop obj) {
 
 template <DecoratorSet decorators, typename T>
 inline void ShenandoahBarrierSet::satb_barrier(T *field) {
+  // Uninitialized and no-keepalive stores do not need barrier.
   if (HasDecorator<decorators, IS_DEST_UNINITIALIZED>::value ||
       HasDecorator<decorators, AS_NO_KEEPALIVE>::value) {
     return;
   }
+
+  // Stores to weak/phantom require no barrier. The original references would
+  // have been enqueued in the SATB buffer by the load barrier if they were needed.
+  if (HasDecorator<decorators, ON_WEAK_OOP_REF>::value ||
+      HasDecorator<decorators, ON_PHANTOM_OOP_REF>::value) {
+    return;
+  }
+
   if (ShenandoahSATBBarrier && _heap->is_concurrent_mark_in_progress()) {
     T heap_oop = RawAccess<>::oop_load(field);
     if (!CompressedOops::is_null(heap_oop)) {
@@ -261,6 +269,7 @@ inline void ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_st
 template <DecoratorSet decorators, typename BarrierSetT>
 template <typename T>
 inline void ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(T* addr, oop value) {
+  assert((decorators & ON_UNKNOWN_OOP_REF) == 0, "Reference strength must be known");
   oop_store_common(addr, value);
 }
 
@@ -359,19 +368,20 @@ void ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::clone_in_heap
 
 template <DecoratorSet decorators, typename BarrierSetT>
 template <typename T>
-bool ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+void ShenandoahBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                                                                          arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                                                                          size_t length) {
   T* src = arrayOopDesc::obj_offset_to_raw(src_obj, src_offset_in_bytes, src_raw);
   T* dst = arrayOopDesc::obj_offset_to_raw(dst_obj, dst_offset_in_bytes, dst_raw);
 
   ShenandoahBarrierSet* bs = ShenandoahBarrierSet::barrier_set();
-  bs->arraycopy_barrier(src, dst, length);
-  bool result = Raw::oop_arraycopy_in_heap(src_obj, src_offset_in_bytes, src_raw, dst_obj, dst_offset_in_bytes, dst_raw, length);
+  bs->arraycopy_barrier(arrayOopDesc::obj_offset_to_raw(src_obj, src_offset_in_bytes, src_raw),
+                        arrayOopDesc::obj_offset_to_raw(dst_obj, dst_offset_in_bytes, dst_raw),
+                        length);
+  Raw::oop_arraycopy_in_heap(src_obj, src_offset_in_bytes, src_raw, dst_obj, dst_offset_in_bytes, dst_raw, length);
   if (ShenandoahCardBarrier) {
     bs->write_ref_array((HeapWord*) dst, length);
   }
-  return result;
 }
 
 template <class T, bool HAS_FWD, bool EVAC, bool ENQUEUE>

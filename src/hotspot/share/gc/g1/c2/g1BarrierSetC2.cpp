@@ -212,10 +212,9 @@ Node* G1BarrierSetC2::load_at_resolved(C2Access& access, const Type* val_type) c
   return CardTableBarrierSetC2::load_at_resolved(access, val_type);
 }
 
-void G1BarrierSetC2::eliminate_gc_barrier(PhaseMacroExpand* macro, Node* node) const {
+void G1BarrierSetC2::eliminate_gc_barrier(PhaseIterGVN* igvn, Node* node) const {
   eliminate_gc_barrier_data(node);
 }
-
 void G1BarrierSetC2::eliminate_gc_barrier_data(Node* node) const {
   if (node->is_LoadStore()) {
     LoadStoreNode* loadstore = node->as_LoadStore();
@@ -287,15 +286,15 @@ bool G1BarrierSetC2::expand_barriers(Compile* C, PhaseIterGVN& igvn) const {
 }
 
 uint G1BarrierSetC2::estimated_barrier_size(const Node* node) const {
-  // These Ideal node counts are extracted from the pre-matching Ideal graph
-  // generated when compiling the following method with early barrier expansion:
-  //   static void write(MyObject obj1, Object o) {
-  //     obj1.o1 = o;
-  //   }
   uint8_t barrier_data = MemNode::barrier_data(node);
   uint nodes = 0;
   if ((barrier_data & G1C2BarrierPre) != 0) {
-    nodes += 50;
+    // Only consider the fast path for the barrier that is
+    // actually inlined into the main code stream.
+    // The slow path is laid out separately and does not
+    // directly affect performance.
+    // It has a cost of 6 (AddP, LoadB, Cmp, Bool, If, IfProj).
+    nodes += 6;
   }
   if ((barrier_data & G1C2BarrierPost) != 0) {
     nodes += 60;

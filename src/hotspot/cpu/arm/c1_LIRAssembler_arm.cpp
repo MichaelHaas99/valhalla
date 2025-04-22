@@ -454,7 +454,7 @@ void LIR_Assembler::reg2reg(LIR_Opr src, LIR_Opr dest) {
   }
 }
 
-void LIR_Assembler::reg2stack(LIR_Opr src, LIR_Opr dest, BasicType type, bool pop_fpu_stack) {
+void LIR_Assembler::reg2stack(LIR_Opr src, LIR_Opr dest, BasicType type) {
   assert(src->is_register(), "should not call otherwise");
   assert(dest->is_stack(), "should not call otherwise");
 
@@ -493,7 +493,7 @@ void LIR_Assembler::reg2stack(LIR_Opr src, LIR_Opr dest, BasicType type, bool po
 
 void LIR_Assembler::reg2mem(LIR_Opr src, LIR_Opr dest, BasicType type,
                             LIR_PatchCode patch_code, CodeEmitInfo* info,
-                            bool pop_fpu_stack, bool wide) {
+                            bool wide) {
   LIR_Address* to_addr = dest->as_address_ptr();
   Register base_reg = to_addr->base()->as_pointer_register();
   const bool needs_patching = (patch_code != lir_patch_none);
@@ -1512,7 +1512,7 @@ static int reg_size(LIR_Opr op) {
 }
 #endif
 
-void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr dest, CodeEmitInfo* info, bool pop_fpu_stack) {
+void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr dest, CodeEmitInfo* info) {
   assert(info == nullptr, "unused on this code path");
   assert(dest->is_register(), "wrong items state");
 
@@ -2568,6 +2568,10 @@ void LIR_Assembler::emit_profile_call(LIR_OpProfileCall* op) {
 
 void LIR_Assembler::emit_profile_type(LIR_OpProfileType* op) {
   fatal("Type profiling not implemented on this platform");
+}
+
+void LIR_Assembler::emit_profile_inline_type(LIR_OpProfileInlineType* op) {
+  Unimplemented();
 }
 
 void LIR_Assembler::emit_delay(LIR_OpDelay*) {

@@ -1202,7 +1202,11 @@ public class Attr extends JCTree.Visitor {
                     if (!TreeInfo.hasAnyConstructorCall(tree)) {
                         JCStatement supCall = make.at(tree.body.pos).Exec(make.Apply(List.nil(),
                                 make.Ident(names._super), make.Idents(List.nil())));
-                        tree.body.stats = tree.body.stats.prepend(supCall);
+                        if (owner.isValueClass() || owner.hasStrict()) {
+                            tree.body.stats = tree.body.stats.append(supCall);
+                        } else {
+                            tree.body.stats = tree.body.stats.prepend(supCall);
+                        }
                     } else if ((env.enclClass.sym.flags() & ENUM) != 0 &&
                             (tree.mods.flags & GENERATEDCONSTR) == 0 &&
                             TreeInfo.hasConstructorCall(tree, names._super)) {
@@ -1312,10 +1316,19 @@ public class Attr extends JCTree.Visitor {
                     // declaration position to maximal possible value, effectively
                     // marking the variable as undefined.
                     initEnv.info.enclVar = v;
-                    attribExpr(tree.init, initEnv, v.type);
-                    if (tree.isImplicitlyTyped()) {
-                        //fixup local variable type
-                        v.type = chk.checkLocalVarType(tree, tree.init.type, tree.name);
+                    boolean previousCtorPrologue = initEnv.info.ctorPrologue;
+                    try {
+                        if (v.owner.kind == TYP && !v.isStatic() && v.isStrict()) {
+                            // strict instance initializer in a value class
+                            initEnv.info.ctorPrologue = true;
+                        }
+                        attribExpr(tree.init, initEnv, v.type);
+                        if (tree.isImplicitlyTyped()) {
+                            //fixup local variable type
+                            v.type = chk.checkLocalVarType(tree, tree.init.type, tree.name);
+                        }
+                    } finally {
+                        initEnv.info.ctorPrologue = previousCtorPrologue;
                     }
                 }
                 if (tree.isImplicitlyTyped()) {
@@ -1435,7 +1448,11 @@ public class Attr extends JCTree.Visitor {
             final Env<AttrContext> localEnv =
                 env.dup(tree, env.info.dup(env.info.scope.dupUnshared(fakeOwner)));
 
-            if ((tree.flags & STATIC) != 0) localEnv.info.staticLevel++;
+            if ((tree.flags & STATIC) != 0) {
+                localEnv.info.staticLevel++;
+            } else {
+                localEnv.info.instanceInitializerBlock = true;
+            }
             // Attribute all type annotations in the block
             annotate.queueScanTreeAndTypeAnnotate(tree, localEnv, localEnv.info.scope.owner, null);
             annotate.flush();
@@ -1944,8 +1961,8 @@ public class Attr extends JCTree.Visitor {
     }
 
     public void visitSynchronized(JCSynchronized tree) {
-        chk.checkRefType(tree.pos(), attribExpr(tree.lock, env));
-        if (isValueBased(tree.lock.type)) {
+        boolean identityType = chk.checkIdentityType(tree.pos(), attribExpr(tree.lock, env));
+        if (identityType && isValueBased(tree.lock.type)) {
             env.info.lint.logIfEnabled(tree.pos(), LintWarnings.AttemptToSynchronizeOnInstanceOfValueBasedClass);
         }
         attribStat(tree.body, env);
@@ -1955,7 +1972,6 @@ public class Attr extends JCTree.Visitor {
         private boolean isValueBased(Type t) {
             return t != null && t.tsym != null && (t.tsym.flags() & VALUE_BASED) != 0;
         }
-
 
     public void visitTry(JCTry tree) {
         // Create a new local environment with a local
@@ -4390,6 +4406,7 @@ public class Attr extends JCTree.Visitor {
 
         // Attribute the qualifier expression, and determine its symbol (if any).
         Type site = attribTree(tree.selected, env, new ResultInfo(skind, Type.noType));
+        Assert.check(site == tree.selected.type);
         if (!pkind().contains(KindSelector.TYP_PCK))
             site = capture(site); // Capture field access
 
@@ -5488,7 +5505,7 @@ public class Attr extends JCTree.Visitor {
                             log.error(TreeInfo.diagnosticPositionFor(c, env.tree), Errors.NonSealedWithNoSealedSupertype(c));
                         }
                     }
-                } else {
+                } else if ((c.flags_field & Flags.COMPOUND) == 0) {
                     if (c.isDirectlyOrIndirectlyLocal() && !c.isEnum()) {
                         log.error(TreeInfo.diagnosticPositionFor(c, env.tree), Errors.LocalClassesCantExtendSealed(c.isAnonymous() ? Fragments.Anonymous : Fragments.Local));
                     }
@@ -5524,6 +5541,11 @@ public class Attr extends JCTree.Visitor {
 
                 if (rs.isSerializable(c.type)) {
                     env.info.isSerializable = true;
+                }
+
+                if (c.isValueClass()) {
+                    Assert.check(env.tree.hasTag(CLASSDEF));
+                    chk.checkConstraintsOfValueClass((JCClassDecl) env.tree, c);
                 }
 
                 attribClassBody(env, c);
@@ -5668,7 +5690,7 @@ public class Attr extends JCTree.Visitor {
         if (env.info.lint.isEnabled(LintCategory.SERIAL)
                 && rs.isSerializable(c.type)
                 && !c.isAnonymous()) {
-            chk.checkSerialStructure(tree, c);
+            chk.checkSerialStructure(env, tree, c);
         }
         // Correctly organize the positions of the type annotations
         typeAnnotations.organizeTypeAnnotationsBodies(tree);

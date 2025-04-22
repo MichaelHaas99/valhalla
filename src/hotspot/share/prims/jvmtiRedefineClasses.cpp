@@ -611,8 +611,7 @@ void VM_RedefineClasses::append_entry(const constantPoolHandle& scratch_cp,
     // At this stage, String could be here, but not StringIndex
     case JVM_CONSTANT_StringIndex: // fall through
 
-    // At this stage JVM_CONSTANT_UnresolvedClassInError should not be
-    // here
+    // At this stage JVM_CONSTANT_UnresolvedClassInError should not be here
     case JVM_CONSTANT_UnresolvedClassInError: // fall through
 
     default:
@@ -1936,6 +1935,12 @@ bool VM_RedefineClasses::rewrite_cp_refs(InstanceKlass* scratch_class) {
     return false;
   }
 
+  // rewrite constant pool references in the LoadableDescriptors attribute:
+  if (!rewrite_cp_refs_in_loadable_descriptors_attribute(scratch_class)) {
+    // propagate failure back to caller
+    return false;
+  }
+
   // rewrite constant pool references in the methods:
   if (!rewrite_cp_refs_in_methods(scratch_class)) {
     // propagate failure back to caller
@@ -2080,6 +2085,19 @@ bool VM_RedefineClasses::rewrite_cp_refs_in_permitted_subclasses_attribute(
   for (int i = 0; i < permitted_subclasses->length(); i++) {
     u2 cp_index = permitted_subclasses->at(i);
     permitted_subclasses->at_put(i, find_new_index(cp_index));
+  }
+  return true;
+}
+
+// Rewrite constant pool references in the LoadableDescriptors attribute.
+bool VM_RedefineClasses::rewrite_cp_refs_in_loadable_descriptors_attribute(
+       InstanceKlass* scratch_class) {
+
+  Array<u2>* loadable_descriptors = scratch_class->loadable_descriptors();
+  assert(loadable_descriptors != nullptr, "unexpected null loadable_descriptors");
+  for (int i = 0; i < loadable_descriptors->length(); i++) {
+    u2 cp_index = loadable_descriptors->at(i);
+    loadable_descriptors->at_put(i, find_new_index(cp_index));
   }
   return true;
 }

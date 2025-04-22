@@ -280,12 +280,6 @@
           "Maximum size of a compiled method.")                             \
           range(0, 1*M)                                                     \
                                                                             \
-  develop(bool, TraceFPUStack, false,                                       \
-          "Trace emulation of the FPU stack (intel only)")                  \
-                                                                            \
-  develop(bool, TraceFPURegisterUsage, false,                               \
-          "Trace usage of FPU registers at start of blocks (intel only)")   \
-                                                                            \
   develop(intx, InstructionCountCutoff, 37000,                              \
           "If GraphBuilder adds this many instructions, bails out")         \
           range(0, max_jint)                                                \
@@ -315,7 +309,10 @@
           "Update MethodData*s in Tier 3 C1 generated code")                \
                                                                             \
   develop(bool, PrintCFGToFile, false,                                      \
-          "print control flow graph to a separate file during compilation")
+          "print control flow graph to a separate file during compilation") \
+                                                                            \
+  develop(bool, C1UseDelayedFlattenedFieldReads, true,                      \
+          "Use delayed reads of flat fields to reduce heap buffering")
 
 // end of C1_FLAGS
 

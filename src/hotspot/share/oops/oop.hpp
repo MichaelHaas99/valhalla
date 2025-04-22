@@ -43,6 +43,16 @@
 // (see oopHierarchy for complete oop class hierarchy)
 //
 // no virtual functions allowed
+//
+// oopDesc::_mark - the "oop mark word" encoding to be found separately in markWord.hpp
+//
+// oopDesc::_metadata - encodes the object's klass pointer, as a raw pointer in "_klass"
+//                      or compressed pointer in "_compressed_klass"
+//
+// The overall size of the _metadata field is dependent on "UseCompressedClassPointers",
+// hence the terms "narrow" (32 bits) vs "wide" (64 bits).
+//
+
 
 // Forward declarations.
 class OopClosure;
@@ -121,20 +131,25 @@ class oopDesc {
   inline size_t size_given_klass(Klass* klass);
 
   // type test operations (inlined in oop.inline.hpp)
-  inline bool is_instance()    const;
-  inline bool is_instanceRef() const;
-  inline bool is_stackChunk()  const;
-  inline bool is_array()       const;
-  inline bool is_objArray()    const;
-  inline bool is_typeArray()   const;
+  inline bool is_instance()         const;
+  inline bool is_inline_type()      const;
+  inline bool is_instanceRef()      const;
+  inline bool is_stackChunk()       const;
+  inline bool is_array()            const;
+  inline bool is_objArray()         const;
+  inline bool is_typeArray()        const;
+  inline bool is_flatArray()        const;
+  inline bool is_null_free_array()  const;
 
   // type test operations that don't require inclusion of oop.inline.hpp.
-  bool is_instance_noinline()    const;
-  bool is_instanceRef_noinline() const;
-  bool is_stackChunk_noinline()  const;
-  bool is_array_noinline()       const;
-  bool is_objArray_noinline()    const;
-  bool is_typeArray_noinline()   const;
+  bool is_instance_noinline()         const;
+  bool is_instanceRef_noinline()      const;
+  bool is_stackChunk_noinline()       const;
+  bool is_array_noinline()            const;
+  bool is_objArray_noinline()         const;
+  bool is_typeArray_noinline()        const;
+  bool is_flatArray_noinline()        const;
+  bool is_null_free_array_noinline()  const;
 
  protected:
   inline oop        as_oop() const { return const_cast<oopDesc*>(this); }

@@ -88,6 +88,7 @@
   flags(CCP1,                           "PhaseCCP 1") \
   flags(ITER_GVN2,                      "Iter GVN 2") \
   flags(PHASEIDEALLOOP_ITERATIONS,      "PhaseIdealLoop iterations") \
+  flags(AFTER_MERGE_STORES,             "After Merge Stores") \
   flags(BEFORE_MACRO_EXPANSION ,        "Before Macro Expansion") \
   flags(AFTER_MACRO_EXPANSION_STEP,     "After Macro Expansion Step") \
   flags(AFTER_MACRO_EXPANSION,          "After Macro Expansion") \
@@ -113,6 +114,8 @@
   flags(FINAL_CODE,                     "Final Code") \
   flags(END,                            "End") \
   flags(FAILURE,                        "Failure") \
+  flags(SPLIT_INLINES_ARRAY,            "Split inlines array") \
+  flags(SPLIT_INLINES_ARRAY_IGVN,       "IGVN after split inlines array") \
   flags(ALL,                            "All") \
   flags(DEBUG,                          "Debug")
 

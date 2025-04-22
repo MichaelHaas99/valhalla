@@ -31,6 +31,7 @@
 #include "oops/compressedOops.inline.hpp"
 #include "oops/objArrayOop.hpp"
 #include "oops/oop.hpp"
+#include "oops/inlineKlass.inline.hpp"
 #include "runtime/thread.hpp"
 
 class Klass;
@@ -93,7 +94,18 @@ oop_atomic_xchg_in_heap(T* addr, oop new_value) {
 
 template <DecoratorSet decorators, typename BarrierSetT>
 template <typename T>
-inline bool ModRefBarrierSet::AccessBarrier<decorators, BarrierSetT>::
+inline void ModRefBarrierSet::AccessBarrier<decorators, BarrierSetT>::
+oop_arraycopy_partial_barrier(BarrierSetT *bs, T* dst_raw, T* p) {
+  const size_t pd = pointer_delta(p, dst_raw, (size_t)heapOopSize);
+  // pointer delta is scaled to number of elements (length field in
+  // objArrayOop) which we assume is 32 bit.
+  assert(pd == (size_t)(int)pd, "length field overflow");
+  bs->write_ref_array((HeapWord*)dst_raw, pd);
+}
+
+template <DecoratorSet decorators, typename BarrierSetT>
+template <typename T>
+inline void ModRefBarrierSet::AccessBarrier<decorators, BarrierSetT>::
 oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                       arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                       size_t length) {
@@ -102,7 +114,8 @@ oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
   src_raw = arrayOopDesc::obj_offset_to_raw(src_obj, src_offset_in_bytes, src_raw);
   dst_raw = arrayOopDesc::obj_offset_to_raw(dst_obj, dst_offset_in_bytes, dst_raw);
 
-  if (!HasDecorator<decorators, ARRAYCOPY_CHECKCAST>::value) {
+  if ((!HasDecorator<decorators, ARRAYCOPY_CHECKCAST>::value) &&
+      (!HasDecorator<decorators, ARRAYCOPY_NOTNULL>::value)) {
     // Optimized covariant case
     bs->write_ref_array_pre(dst_raw, length,
                             HasDecorator<decorators, IS_DEST_UNINITIALIZED>::value);
@@ -115,22 +128,24 @@ oop_arraycopy_in_heap(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
     T* end = from + length;
     for (T* p = dst_raw; from < end; from++, p++) {
       T element = *from;
-      if (oopDesc::is_instanceof_or_null(CompressedOops::decode(element), bound)) {
-        bs->template write_ref_field_pre<decorators>(p);
-        *p = element;
-      } else {
-        // We must do a barrier to cover the partial copy.
-        const size_t pd = pointer_delta(p, dst_raw, (size_t)heapOopSize);
-        // pointer delta is scaled to number of elements (length field in
-        // objArrayOop) which we assume is 32 bit.
-        assert(pd == (size_t)(int)pd, "length field overflow");
-        bs->write_ref_array((HeapWord*)dst_raw, pd);
-        return false;
+      // Apply any required checks
+      if (HasDecorator<decorators, ARRAYCOPY_NOTNULL>::value && CompressedOops::is_null(element)) {
+        oop_arraycopy_partial_barrier(bs, dst_raw, p);
+        throw_array_null_pointer_store_exception(src_obj, dst_obj, JavaThread::current());
+        return;
       }
+      if (HasDecorator<decorators, ARRAYCOPY_CHECKCAST>::value &&
+          (!oopDesc::is_instanceof_or_null(CompressedOops::decode(element), bound))) {
+        oop_arraycopy_partial_barrier(bs, dst_raw, p);
+        throw_array_store_exception(src_obj, dst_obj, JavaThread::current());
+        return;
+      }
+      // write
+      bs->template write_ref_field_pre<decorators>(p);
+      *p = element;
     }
     bs->write_ref_array((HeapWord*)dst_raw, length);
   }
-  return true;
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -139,6 +154,38 @@ clone_in_heap(oop src, oop dst, size_t size) {
   Raw::clone(src, dst, size);
   BarrierSetT *bs = barrier_set_cast<BarrierSetT>(barrier_set());
   bs->write_region(MemRegion((HeapWord*)(void*)dst, size));
+}
+
+template <DecoratorSet decorators, typename BarrierSetT>
+inline void ModRefBarrierSet::AccessBarrier<decorators, BarrierSetT>::
+value_copy_in_heap(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+  if (HasDecorator<decorators, IS_DEST_UNINITIALIZED>::value || (!md->contains_oops())) {
+    Raw::value_copy(src, dst, md, lk);
+  } else {
+    BarrierSetT* bs = barrier_set_cast<BarrierSetT>(BarrierSet::barrier_set());
+    // src/dst aren't oops, need offset to adjust oop map offset
+    const address dst_oop_addr_offset = ((address) dst) - md->payload_offset();
+    typedef typename ValueOopType<decorators>::type OopType;
+
+    // Pre-barriers...
+    OopMapBlock* map = md->start_of_nonstatic_oop_maps();
+    OopMapBlock* const end = map + md->nonstatic_oop_map_count();
+    while (map != end) {
+      address doop_address = dst_oop_addr_offset + map->offset();
+      bs->write_ref_array_pre((OopType*) doop_address, map->count(), false);
+      map++;
+    }
+
+    Raw::value_copy(src, dst, md, lk);
+
+    // Post-barriers...
+    map = md->start_of_nonstatic_oop_maps();
+    while (map != end) {
+      address doop_address = dst_oop_addr_offset + map->offset();
+      bs->write_ref_array((HeapWord*) doop_address, map->count());
+      map++;
+    }
+  }
 }
 
 #endif // SHARE_GC_SHARED_MODREFBARRIERSET_INLINE_HPP

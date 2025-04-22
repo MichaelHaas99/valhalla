@@ -110,6 +110,8 @@ static LatestMethodCache _loader_addClass_cache;            // ClassLoader.addCl
 static LatestMethodCache _throw_illegal_access_error_cache; // Unsafe.throwIllegalAccessError()
 static LatestMethodCache _throw_no_such_method_error_cache; // Unsafe.throwNoSuchMethodError()
 static LatestMethodCache _do_stack_walk_cache;              // AbstractStackWalker.doStackWalk()
+static LatestMethodCache _is_substitutable_cache;           // ValueObjectMethods.isSubstitutable()
+static LatestMethodCache _value_object_hash_code_cache;     // ValueObjectMethods.valueObjectHashCode()
 
 // Known objects
 TypeArrayKlass* Universe::_typeArrayKlasses[T_LONG+1] = { nullptr /*, nullptr...*/ };
@@ -452,6 +454,7 @@ void Universe::genesis(TRAPS) {
              vmClasses::Cloneable_klass(), "u3");
       assert(_the_array_interfaces_array->at(1) ==
              vmClasses::Serializable_klass(), "u3");
+
     } else
 #endif
     {
@@ -885,7 +888,6 @@ jint universe_init() {
   Universe::initialize_tlab();
 
   Metaspace::global_initialize();
-
   // Initialize performance counters for metaspaces
   MetaspaceCounters::initialize_performance_counters();
 
@@ -1041,6 +1043,8 @@ Method* Universe::loader_addClass_method()        { return _loader_addClass_cach
 Method* Universe::throw_illegal_access_error()    { return _throw_illegal_access_error_cache.get_method(); }
 Method* Universe::throw_no_such_method_error()    { return _throw_no_such_method_error_cache.get_method(); }
 Method* Universe::do_stack_walk_method()          { return _do_stack_walk_cache.get_method(); }
+Method* Universe::is_substitutable_method()       { return _is_substitutable_cache.get_method(); }
+Method* Universe::value_object_hash_code_method() { return _value_object_hash_code_cache.get_method(); }
 
 void Universe::initialize_known_methods(JavaThread* current) {
   // Set up static method for registering finalizers
@@ -1070,6 +1074,17 @@ void Universe::initialize_known_methods(JavaThread* current) {
                           vmClasses::AbstractStackWalker_klass(),
                           "doStackWalk",
                           vmSymbols::doStackWalk_signature(), false);
+
+  // Set up substitutability testing
+  ResourceMark rm(current);
+  _is_substitutable_cache.init(current,
+                          vmClasses::ValueObjectMethods_klass(),
+                          vmSymbols::isSubstitutable_name()->as_C_string(),
+                          vmSymbols::object_object_boolean_signature(), true);
+  _value_object_hash_code_cache.init(current,
+                          vmClasses::ValueObjectMethods_klass(),
+                          vmSymbols::valueObjectHashCode_name()->as_C_string(),
+                          vmSymbols::object_int_signature(), true);
 }
 
 void universe2_init() {

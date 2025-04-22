@@ -91,6 +91,7 @@ public:
 
   inline const char* module_name() const { return _module_name; }
   inline char* path_string() const { return _path->value(); }
+  inline void append_path(const char* path) { _path->append_value(path); }
 };
 
 // Element describing System and User (-Dkey=value flags) defined property.
@@ -476,7 +477,8 @@ class Arguments : AllStatic {
   static void set_ext_dirs(char *value)     { _ext_dirs = os::strdup_check_oom(value); }
 
   // Set up the underlying pieces of the boot class path
-  static void add_patch_mod_prefix(const char *module_name, const char *path);
+  static void add_patch_mod_prefix(const char *module_name, const char *path, bool allow_append, bool allow_cds);
+  static int finalize_patch_module();
   static void set_boot_class_path(const char *value, bool has_jimage) {
     // During start up, set by os::set_boot_path()
     assert(get_boot_class_path() == nullptr, "Boot class path previously set");

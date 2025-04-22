@@ -46,6 +46,27 @@
 
 typedef void (MacroAssembler::* chr_insn)(Register Rt, const Address &adr);
 
+void C2_MacroAssembler::entry_barrier() {
+  BarrierSetAssembler* bs = BarrierSet::barrier_set()->barrier_set_assembler();
+  // Dummy labels for just measuring the code size
+  Label dummy_slow_path;
+  Label dummy_continuation;
+  Label dummy_guard;
+  Label* slow_path = &dummy_slow_path;
+  Label* continuation = &dummy_continuation;
+  Label* guard = &dummy_guard;
+  if (!Compile::current()->output()->in_scratch_emit_size()) {
+    // Use real labels from actual stub when not emitting code for the purpose of measuring its size
+    C2EntryBarrierStub* stub = new (Compile::current()->comp_arena()) C2EntryBarrierStub();
+    Compile::current()->output()->add_stub(stub);
+    slow_path = &stub->entry();
+    continuation = &stub->continuation();
+    guard = &stub->guard();
+  }
+  // In the C2 code, we move the non-hot part of nmethod entry barriers out-of-line to a stub.
+  bs->nmethod_entry_barrier(this, slow_path, continuation, guard);
+}
+
 // jdk.internal.util.ArraysSupport.vectorizedHashCode
 address C2_MacroAssembler::arrays_hashcode(Register ary, Register cnt, Register result,
                                            FloatRegister vdata0, FloatRegister vdata1,
@@ -174,6 +195,11 @@ void C2_MacroAssembler::fast_lock(Register objectReg, Register boxReg, Register 
     assert(LockingMode == LM_LEGACY, "must be");
     // Set tmp to be (markWord of object | UNLOCK_VALUE).
     orr(tmp, disp_hdr, markWord::unlocked_value);
+
+    if (EnableValhalla) {
+      // Mask inline_type bit such that we go to the slow path if object is an inline type
+      andr(tmp, tmp, ~((int) markWord::inline_type_bit_in_place));
+    }
 
     // Initialize the box. (Must happen before we update the object mark!)
     str(tmp, Address(box, BasicLock::displaced_header_offset_in_bytes()));
@@ -2541,6 +2567,64 @@ void C2_MacroAssembler::neon_reverse_bytes(FloatRegister dst, FloatRegister src,
       break;
     default:
       assert(false, "unsupported");
+      ShouldNotReachHere();
+  }
+}
+
+// VectorRearrange implementation for short/int/float/long/double types with NEON
+// instructions. For VectorRearrange short/int/float, we use NEON tbl instruction.
+// But since it supports bytes table only, we need to lookup 2/4 bytes as a group.
+// For VectorRearrange long/double, we compare the shuffle input with iota indices,
+// and use bsl to implement the operation.
+void C2_MacroAssembler::neon_rearrange_hsd(FloatRegister dst, FloatRegister src,
+                                           FloatRegister shuffle, FloatRegister tmp,
+                                           BasicType bt, bool isQ) {
+  assert_different_registers(dst, src, shuffle, tmp);
+  SIMD_Arrangement size1 = isQ ? T16B : T8B;
+  SIMD_Arrangement size2 = esize2arrangement((uint)type2aelembytes(bt), isQ);
+
+  // Here is an example that rearranges a NEON vector with 4 ints:
+  // Rearrange V1 int[a0, a1, a2, a3] to V2 int[a2, a3, a0, a1]
+  //   1. We assume the shuffle input is Vi int[2, 3, 0, 1].
+  //   2. Multiply Vi int[2, 3, 0, 1] with constant int vector
+  //      [0x04040404, 0x04040404, 0x04040404, 0x04040404], and get
+  //      tbl base Vm int[0x08080808, 0x0c0c0c0c, 0x00000000, 0x04040404].
+  //   3. Add Vm with constant int[0x03020100, 0x03020100, 0x03020100, 0x03020100],
+  //      and get tbl index Vm int[0x0b0a0908, 0x0f0e0d0c, 0x03020100, 0x07060504]
+  //   4. Use Vm as index register, and use V1 as table register.
+  //      Then get V2 as the result by tbl NEON instructions.
+  switch (bt) {
+    case T_SHORT:
+      mov(tmp, size1, 0x02);
+      mulv(dst, size2, shuffle, tmp);
+      mov(tmp, size2, 0x0100);
+      addv(dst, size1, dst, tmp);
+      tbl(dst, size1, src, 1, dst);
+      break;
+    case T_INT:
+    case T_FLOAT:
+      mov(tmp, size1, 0x04);
+      mulv(dst, size2, shuffle, tmp);
+      mov(tmp, size2, 0x03020100);
+      addv(dst, size1, dst, tmp);
+      tbl(dst, size1, src, 1, dst);
+      break;
+    case T_LONG:
+    case T_DOUBLE:
+      // Load the iota indices for Long type. The indices are ordered by
+      // type B/S/I/L/F/D, and the offset between two types is 16; Hence
+      // the offset for L is 48.
+      lea(rscratch1,
+          ExternalAddress(StubRoutines::aarch64::vector_iota_indices() + 48));
+      ldrq(tmp, rscratch1);
+      // Check whether the input "shuffle" is the same with iota indices.
+      // Return "src" if true, otherwise swap the two elements of "src".
+      cm(EQ, dst, size2, shuffle, tmp);
+      ext(tmp, size1, src, src, 8);
+      bsl(dst, size1, src, tmp);
+      break;
+    default:
+      assert(false, "unsupported element type");
       ShouldNotReachHere();
   }
 }

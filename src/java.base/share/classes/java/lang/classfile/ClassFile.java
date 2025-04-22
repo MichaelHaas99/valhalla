@@ -805,6 +805,9 @@ public sealed interface ClassFile
     /** The bit mask of {@link AccessFlag#SUPER} access and property modifier. */
     int ACC_SUPER = 0x0020;
 
+    /** The bit mask of {@link AccessFlag#IDENTITY} access and property modifier. */
+    int ACC_IDENTITY = 0x0020;
+
     /** The bit mask of {@link AccessFlag#ABSTRACT} access and property modifier. */
     int ACC_ABSTRACT = 0x0400;
 

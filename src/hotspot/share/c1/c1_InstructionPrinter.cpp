@@ -22,12 +22,13 @@
  *
  */
 
-#include "classfile/vmSymbols.hpp"
 #include "c1/c1_InstructionPrinter.hpp"
 #include "c1/c1_ValueStack.hpp"
 #include "ci/ciArray.hpp"
+#include "ci/ciInlineKlass.hpp"
 #include "ci/ciInstance.hpp"
 #include "ci/ciObject.hpp"
+#include "classfile/vmSymbols.hpp"
 
 
 #ifndef PRODUCT
@@ -380,7 +381,12 @@ void InstructionPrinter::do_ArrayLength(ArrayLength* x) {
 
 void InstructionPrinter::do_LoadIndexed(LoadIndexed* x) {
   print_indexed(x);
-  output()->print(" (%c)", type2char(x->elt_type()));
+  if (x->delayed() != nullptr) {
+    output()->print(" +%d", x->delayed()->offset());
+    output()->print(" (%c)", type2char(x->delayed()->field()->type()->basic_type()));
+  } else {
+    output()->print(" (%c)", type2char(x->elt_type()));
+  }
   if (x->check_flag(Instruction::NeedsRangeCheckFlag)) {
     output()->print(" [rc]");
   }
@@ -494,7 +500,6 @@ void InstructionPrinter::do_NewTypeArray(NewTypeArray* x) {
   output()->put(']');
 }
 
-
 void InstructionPrinter::do_NewObjectArray(NewObjectArray* x) {
   output()->print("new object array [");
   print_value(x->length());
@@ -513,7 +518,6 @@ void InstructionPrinter::do_NewMultiArray(NewMultiArray* x) {
   output()->print("] ");
   print_klass(x->klass());
 }
-
 
 void InstructionPrinter::do_MonitorEnter(MonitorEnter* x) {
   output()->print("enter ");
@@ -779,12 +783,6 @@ void InstructionPrinter::do_ExceptionObject(ExceptionObject* x) {
   output()->print("incoming exception");
 }
 
-
-void InstructionPrinter::do_RoundFP(RoundFP* x) {
-  output()->print("round_fp ");
-  print_value(x->input());
-}
-
 void InstructionPrinter::do_UnsafeGet(UnsafeGet* x) {
   print_unsafe_op(x, x->is_raw() ? "UnsafeGet (raw)" : "UnsafeGet");
   output()->put(')');
@@ -851,11 +849,19 @@ void InstructionPrinter::do_ProfileReturnType(ProfileReturnType* x) {
   output()->print(" %s.%s", x->method()->holder()->name()->as_utf8(), x->method()->name()->as_utf8());
   output()->put(')');
 }
+
 void InstructionPrinter::do_ProfileInvoke(ProfileInvoke* x) {
   output()->print("profile_invoke ");
   output()->print(" %s.%s", x->inlinee()->holder()->name()->as_utf8(), x->inlinee()->name()->as_utf8());
   output()->put(')');
 
+}
+
+void InstructionPrinter::do_ProfileACmpTypes(ProfileACmpTypes* x) {
+  output()->print("profile acmp types ");
+  print_value(x->left());
+  output()->print(", ");
+  print_value(x->right());
 }
 
 void InstructionPrinter::do_RuntimeCall(RuntimeCall* x) {

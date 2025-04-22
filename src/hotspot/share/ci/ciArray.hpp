@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,7 @@
 #include "ci/ciConstant.hpp"
 #include "ci/ciObject.hpp"
 #include "oops/arrayOop.hpp"
+#include "oops/flatArrayOop.hpp"
 #include "oops/objArrayOop.hpp"
 #include "oops/typeArrayOop.hpp"
 
@@ -43,6 +44,7 @@ private:
 protected:
   ciArray( objArrayHandle h_a) : ciObject(h_a), _length(h_a()->length()) {}
   ciArray(typeArrayHandle h_a) : ciObject(h_a), _length(h_a()->length()) {}
+  ciArray(flatArrayHandle h_a) : ciObject(h_a), _length(h_a()->length()) {}
 
   arrayOop get_arrayOop() const { return (arrayOop)get_oop(); }
 
@@ -70,6 +72,9 @@ public:
 
   // What kind of ciObject is this?
   bool is_array()        { return true; }
+
+  virtual bool is_flat()      { return false; }
+  virtual bool is_null_free();
 };
 
 #endif // SHARE_CI_CIARRAY_HPP

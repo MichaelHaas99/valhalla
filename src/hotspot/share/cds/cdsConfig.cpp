@@ -33,6 +33,7 @@
 #include "logging/log.hpp"
 #include "memory/universe.hpp"
 #include "runtime/arguments.hpp"
+#include "runtime/globals.hpp"
 #include "runtime/globals_extension.hpp"
 #include "runtime/java.hpp"
 #include "runtime/vmThread.hpp"
@@ -51,6 +52,14 @@ bool CDSConfig::_old_cds_flags_used = false;
 bool CDSConfig::_new_aot_flags_used = false;
 bool CDSConfig::_disable_heap_dumping = false;
 
+bool CDSConfig::_module_patching_disables_cds = false;
+bool CDSConfig::_java_base_module_patching_disables_cds = false;
+
+bool CDSConfig::is_valhalla_preview() {
+  return Arguments::enable_preview() && EnableValhalla;
+}
+
+
 char* CDSConfig::_default_archive_path = nullptr;
 char* CDSConfig::_static_archive_path = nullptr;
 char* CDSConfig::_dynamic_archive_path = nullptr;
@@ -60,6 +69,7 @@ JavaThread* CDSConfig::_dumper_thread = nullptr;
 int CDSConfig::get_status() {
   assert(Universe::is_fully_initialized(), "status is finalized only after Universe is initialized");
   return (is_dumping_archive()              ? IS_DUMPING_ARCHIVE : 0) |
+         (is_dumping_method_handles()       ? IS_DUMPING_METHOD_HANDLES : 0) |
          (is_dumping_static_archive()       ? IS_DUMPING_STATIC_ARCHIVE : 0) |
          (is_logging_lambda_form_invokers() ? IS_LOGGING_LAMBDA_FORM_INVOKERS : 0) |
          (is_using_archive()                ? IS_USING_ARCHIVE : 0);
@@ -109,6 +119,9 @@ char* CDSConfig::default_archive_path() {
       tmp.print_raw("_coh");
     }
 #endif
+    if (is_valhalla_preview()) {
+      tmp.print_raw("_valhalla");
+    }
     tmp.print_raw(".jsa");
     _default_archive_path = os::strdup(tmp.base());
   }
@@ -292,13 +305,11 @@ static const char* find_any_unsupported_module_option() {
   // directly specified in the command-line.
   static const char* unsupported_module_properties[] = {
     "jdk.module.limitmods",
-    "jdk.module.upgrade.path",
-    "jdk.module.patch.0"
+    "jdk.module.upgrade.path"
   };
   static const char* unsupported_module_options[] = {
     "--limit-modules",
-    "--upgrade-module-path",
-    "--patch-module"
+    "--upgrade-module-path"
   };
 
   assert(ARRAY_SIZE(unsupported_module_properties) == ARRAY_SIZE(unsupported_module_options), "must be");
@@ -321,6 +332,12 @@ void CDSConfig::check_unsupported_dumping_module_options() {
   if (option != nullptr) {
     vm_exit_during_initialization("Cannot use the following option when dumping the shared archive", option);
   }
+
+  if (module_patching_disables_cds()) {
+    vm_exit_during_initialization(
+            "Cannot use the following option when dumping the shared archive", "--patch-module");
+  }
+
   // Check for an exploded module build in use with -Xshare:dump.
   if (!Arguments::has_jimage()) {
     vm_exit_during_initialization("Dumping the shared archive is not supported with an exploded module build");
@@ -349,6 +366,16 @@ bool CDSConfig::has_unsupported_runtime_module_options() {
     }
     return true;
   }
+
+  if (module_patching_disables_cds()) {
+    if (RequireSharedSpaces) {
+      warning("CDS is disabled when the %s option is specified.", "--patch-module");
+    } else {
+      log_info(cds)("CDS is disabled when the %s option is specified.", "--patch-module");
+    }
+    return true;
+  }
+
   return false;
 }
 
@@ -462,7 +489,7 @@ void CDSConfig::check_aotmode_create() {
   CDSConfig::enable_dumping_static_archive();
 }
 
-bool CDSConfig::check_vm_args_consistency(bool patch_mod_javabase, bool mode_flag_cmd_line) {
+bool CDSConfig::check_vm_args_consistency(bool mode_flag_cmd_line) {
   check_aot_flags();
 
   if (!FLAG_IS_DEFAULT(AOTMode)) {
@@ -527,7 +554,7 @@ bool CDSConfig::check_vm_args_consistency(bool patch_mod_javabase, bool mode_fla
     }
   }
 
-  if (is_using_archive() && patch_mod_javabase) {
+  if (is_using_archive() && java_base_module_patching_disables_cds() && module_patching_disables_cds()) {
     Arguments::no_shared_spaces("CDS is disabled when " JAVA_BASE_NAME " module is patched.");
   }
   if (is_using_archive() && has_unsupported_runtime_module_options()) {
@@ -561,7 +588,7 @@ bool CDSConfig::is_dumping_final_static_archive() {
 
 bool CDSConfig::allow_only_single_java_thread() {
   // See comments in JVM_StartThread()
-  return is_dumping_static_archive();
+  return is_dumping_classic_static_archive() || is_dumping_final_static_archive();
 }
 
 bool CDSConfig::is_using_archive() {
@@ -647,13 +674,21 @@ void CDSConfig::log_reasons_for_not_dumping_heap() {
   log_info(cds)("Archived java heap is not supported: %s", reason);
 }
 
+// This is *Legacy* optimization for lambdas before JEP 483. May be removed in the future.
+bool CDSConfig::is_dumping_lambdas_in_legacy_mode() {
+  return !is_dumping_method_handles();
+}
+
 #if INCLUDE_CDS_JAVA_HEAP
 bool CDSConfig::are_vm_options_incompatible_with_dumping_heap() {
   return check_options_incompatible_with_dumping_heap() != nullptr;
 }
 
-
 bool CDSConfig::is_dumping_heap() {
+  if (is_valhalla_preview()) {
+    // Not working yet -- e.g., HeapShared::oop_hash() needs to be implemented for value oops
+    return false;
+  }
   if (!(is_dumping_classic_static_archive() || is_dumping_final_static_archive())
       || are_vm_options_incompatible_with_dumping_heap()
       || _disable_heap_dumping) {

@@ -33,6 +33,7 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.lang.module.ModuleDescriptor;
+import java.lang.reflect.ClassFileFormatVersion;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -478,12 +479,6 @@ public interface JavaLangAccess {
     NativeLibraries nativeLibrariesFor(ClassLoader loader);
 
     /**
-     * Direct access to Shutdown.exit to avoid security manager checks
-     * @param statusCode the status code
-     */
-    void exit(int statusCode);
-
-    /**
      * Returns an array of all platform threads.
      */
     Thread[] getAllThreads();
@@ -603,6 +598,12 @@ public interface JavaLangAccess {
     StackWalker newStackWalkerInstance(Set<StackWalker.Option> options,
                                        ContinuationScope contScope,
                                        Continuation continuation);
+
+    /**
+     * Returns the class file format version of the class.
+     */
+    int classFileFormatVersion(Class<?> klass);
+
     /**
      * Returns '<loader-name>' @<id> if classloader has a name
      * explicitly set otherwise <qualified-class-name> @<id>

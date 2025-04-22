@@ -22,13 +22,13 @@
  *
  */
 
-#include "classfile/javaClasses.inline.hpp"
 #include "ci/ciConstant.hpp"
 #include "ci/ciField.hpp"
 #include "ci/ciInstance.hpp"
 #include "ci/ciInstanceKlass.hpp"
 #include "ci/ciNullObject.hpp"
 #include "ci/ciUtilities.inline.hpp"
+#include "classfile/javaClasses.inline.hpp"
 #include "classfile/vmClasses.hpp"
 #include "oops/oop.inline.hpp"
 
@@ -39,7 +39,7 @@
 
 // ------------------------------------------------------------------
 // ciObject::java_mirror_type
-ciType* ciInstance::java_mirror_type() {
+ciType* ciInstance::java_mirror_type(bool* is_null_free_array) {
   VM_ENTRY_MARK;
   oop m = get_oop();
   // Return null if it is not java.lang.Class.
@@ -52,6 +52,9 @@ ciType* ciInstance::java_mirror_type() {
   } else {
     Klass* k = java_lang_Class::as_Klass(m);
     assert(k != nullptr, "");
+    if (is_null_free_array != nullptr && (k->is_array_klass() && k->is_null_free_array_klass())) {
+      *is_null_free_array = true;
+    }
     return CURRENT_THREAD_ENV->get_klass(k);
   }
 }
@@ -107,7 +110,9 @@ ciConstant ciInstance::field_value_impl(BasicType field_btype, int offset) {
 ciConstant ciInstance::field_value(ciField* field) {
   assert(is_loaded(), "invalid access - must be loaded");
   assert(field->holder()->is_loaded(), "invalid access - holder must be loaded");
-  assert(field->is_static() || klass()->is_subclass_of(field->holder()), "invalid access - must be subclass");
+  assert(field->is_static() || field->holder()->is_inlinetype() || klass()->is_subclass_of(field->holder()),
+         "invalid access - must be subclass");
+
   return field_value_impl(field->type()->basic_type(), field->offset_in_bytes());
 }
 

@@ -625,6 +625,15 @@ const bool support_IRIW_for_not_multiple_copy_atomic_cpu = PPC64_ONLY(true) NOT_
 
 
 //----------------------------------------------------------------------------------------------------
+// Prototyping
+// "Code Missing Here" macro, un-define when integrating back from prototyping stage and break
+// compilation on purpose (i.e. "forget me not")
+#define PROTOTYPE
+#ifdef PROTOTYPE
+#define CMH(m)
+#endif
+
+//----------------------------------------------------------------------------------------------------
 // Miscellaneous
 
 // 6302670 Eliminate Hotspot __fabsf dependency
@@ -709,12 +718,13 @@ enum BasicType : u1 {
   // types in their own right.
   T_OBJECT      = 12,
   T_ARRAY       = 13,
-  T_VOID        = 14,
-  T_ADDRESS     = 15,
-  T_NARROWOOP   = 16,
-  T_METADATA    = 17,
-  T_NARROWKLASS = 18,
-  T_CONFLICT    = 19, // for stack value type with conflicting contents
+  T_FLAT_ELEMENT = 14, // Not a true BasicType, only use in headers of flat arrays
+  T_VOID        = 15,
+  T_ADDRESS     = 16,
+  T_NARROWOOP   = 17,
+  T_METADATA    = 18,
+  T_NARROWKLASS = 19,
+  T_CONFLICT    = 20, // for stack value type with conflicting contents
   T_ILLEGAL     = 99
 };
 
@@ -729,6 +739,7 @@ enum BasicType : u1 {
     F(JVM_SIGNATURE_LONG,    T_LONG,    N)      \
     F(JVM_SIGNATURE_CLASS,   T_OBJECT,  N)      \
     F(JVM_SIGNATURE_ARRAY,   T_ARRAY,   N)      \
+    F(JVM_SIGNATURE_FLAT_ELEMENT, T_FLAT_ELEMENT, N) \
     F(JVM_SIGNATURE_VOID,    T_VOID,    N)      \
     /*end*/
 
@@ -758,7 +769,7 @@ inline bool is_double_word_type(BasicType t) {
 }
 
 inline bool is_reference_type(BasicType t, bool include_narrow_oop = false) {
-  return (t == T_OBJECT || t == T_ARRAY || (include_narrow_oop && t == T_NARROWOOP));
+  return (t == T_OBJECT || t == T_ARRAY || t == T_FLAT_ELEMENT || (include_narrow_oop && t == T_NARROWOOP));
 }
 
 inline bool is_integral_type(BasicType t) {
@@ -797,6 +808,14 @@ inline jlong min_signed_integer(BasicType bt) {
   return min_jlong;
 }
 
+inline uint bits_per_java_integer(BasicType bt) {
+  if (bt == T_INT) {
+    return BitsPerJavaInteger;
+  }
+  assert(bt == T_LONG, "int or long only");
+  return BitsPerJavaLong;
+}
+
 // Auxiliary math routines
 // least common multiple
 extern size_t lcm(size_t a, size_t b);
@@ -816,7 +835,8 @@ enum BasicTypeSize {
   T_ARRAY_size       = 1,
   T_NARROWOOP_size   = 1,
   T_NARROWKLASS_size = 1,
-  T_VOID_size        = 0
+  T_VOID_size        = 0,
+  T_FLAT_ELEMENT_size = 1
 };
 
 // this works on valid parameter types but not T_VOID, T_CONFLICT, etc.
@@ -846,9 +866,11 @@ enum ArrayElementSize {
 #ifdef _LP64
   T_OBJECT_aelem_bytes      = 8,
   T_ARRAY_aelem_bytes       = 8,
+  T_FLAT_ELEMENT_aelem_bytes = 8,
 #else
   T_OBJECT_aelem_bytes      = 4,
   T_ARRAY_aelem_bytes       = 4,
+  T_FLAT_ELEMENT_aelem_bytes = 4,
 #endif
   T_NARROWOOP_aelem_bytes   = 4,
   T_NARROWKLASS_aelem_bytes = 4,
@@ -942,7 +964,7 @@ enum TosState {         // describes the tos cache contents
   ftos = 6,             // float tos cached
   dtos = 7,             // double tos cached
   atos = 8,             // object cached
-  vtos = 9,             // tos not cached
+  vtos = 9,             // tos not cached,
   number_of_states,
   ilgl                  // illegal state: should not occur
 };
@@ -959,7 +981,7 @@ inline TosState as_TosState(BasicType type) {
     case T_FLOAT  : return ftos;
     case T_DOUBLE : return dtos;
     case T_VOID   : return vtos;
-    case T_ARRAY  : // fall through
+    case T_ARRAY  :   // fall through
     case T_OBJECT : return atos;
     default       : return ilgl;
   }

@@ -23,6 +23,9 @@
  */
 
 #include "ci/ciCallSite.hpp"
+#include "ci/ciFlatArray.hpp"
+#include "ci/ciFlatArrayKlass.hpp"
+#include "ci/ciInlineKlass.hpp"
 #include "ci/ciInstance.hpp"
 #include "ci/ciInstanceKlass.hpp"
 #include "ci/ciMemberName.hpp"
@@ -364,6 +367,9 @@ ciObject* ciObjectFactory::create_new_object(oop o) {
   } else if (o->is_typeArray()) {
     typeArrayHandle h_ta(THREAD, (typeArrayOop)o);
     return new (arena()) ciTypeArray(h_ta);
+  } else if (o->is_flatArray()) {
+    flatArrayHandle h_ta(THREAD, (flatArrayOop)o);
+    return new (arena()) ciFlatArray(h_ta);
   }
 
   // The oop is of some type not supported by the compiler interface.
@@ -383,9 +389,13 @@ ciMetadata* ciObjectFactory::create_new_metadata(Metadata* o) {
 
   if (o->is_klass()) {
     Klass* k = (Klass*)o;
-    if (k->is_instance_klass()) {
+    if (k->is_inline_klass()) {
+      return new (arena()) ciInlineKlass(k);
+    } else if (k->is_instance_klass()) {
       assert(!ReplayCompiles || ciReplay::no_replay_state() || !ciReplay::is_klass_unresolved((InstanceKlass*)k), "must be whitelisted for replay compilation");
       return new (arena()) ciInstanceKlass(k);
+    } else if (k->is_flatArray_klass()) {
+      return new (arena()) ciFlatArrayKlass(k);
     } else if (k->is_objArray_klass()) {
       return new (arena()) ciObjArrayKlass(k);
     } else if (k->is_typeArray_klass()) {
@@ -620,6 +630,12 @@ ciReturnAddress* ciObjectFactory::get_return_address(int bci) {
   init_ident_of(new_ret_addr);
   _return_addresses.append(new_ret_addr);
   return new_ret_addr;
+}
+
+ciWrapper* ciObjectFactory::make_null_free_wrapper(ciType* type) {
+  ciWrapper* wrapper = new (arena()) ciWrapper(type);
+  init_ident_of(wrapper);
+  return wrapper;
 }
 
 // ------------------------------------------------------------------

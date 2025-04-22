@@ -940,14 +940,14 @@ JvmtiEnv::SuspendThread(jthread thread) {
 
     // Do not use JvmtiVTMSTransitionDisabler in context of self suspend to avoid deadlocks.
     if (java_thread != current) {
-      err = suspend_thread(thread_oop, java_thread, /* single_suspend */ true, nullptr);
+      err = suspend_thread(thread_oop, java_thread, /* single_suspend */ true);
       return err;
     }
     // protect thread_oop as a safepoint can be reached in disabler destructor
     self_tobj = Handle(current, thread_oop);
   }
   // Do self suspend for current JavaThread.
-  err = suspend_thread(self_tobj(), current, /* single_suspend */ true, nullptr);
+  err = suspend_thread(self_tobj(), current, /* single_suspend */ true);
   return err;
 } /* end SuspendThread */
 
@@ -988,14 +988,14 @@ JvmtiEnv::SuspendThreadList(jint request_count, const jthread* request_list, jvm
         self_tobj = Handle(current, thread_oop);
         continue; // self suspend after all other suspends
       }
-      results[i] = suspend_thread(thread_oop, java_thread, /* single_suspend */ true, nullptr);
+      results[i] = suspend_thread(thread_oop, java_thread, /* single_suspend */ true);
     }
   }
   // Self suspend after all other suspends if necessary.
   // Do not use JvmtiVTMSTransitionDisabler in context of self suspend to avoid deadlocks.
   if (self_tobj() != nullptr) {
     // there should not be any error for current java_thread
-    results[self_idx] = suspend_thread(self_tobj(), current, /* single_suspend */ true, nullptr);
+    results[self_idx] = suspend_thread(self_tobj(), current, /* single_suspend */ true);
   }
   // per-thread suspend results returned via results parameter
   return JVMTI_ERROR_NONE;
@@ -1048,7 +1048,7 @@ JvmtiEnv::SuspendAllVirtualThreads(jint except_count, const jthread* except_list
           self_tobj = Handle(current, vt_oop);
           continue; // self suspend after all other suspends
         }
-        suspend_thread(vt_oop, java_thread, /* single_suspend */ false, nullptr);
+        suspend_thread(vt_oop, java_thread, /* single_suspend */ false);
       }
     }
     JvmtiVTSuspender::register_all_vthreads_suspend();
@@ -1065,7 +1065,7 @@ JvmtiEnv::SuspendAllVirtualThreads(jint except_count, const jthread* except_list
   // Self suspend after all other suspends if necessary.
   // Do not use JvmtiVTMSTransitionDisabler in context of self suspend to avoid deadlocks.
   if (self_tobj() != nullptr) {
-    suspend_thread(self_tobj(), current, /* single_suspend */ false, nullptr);
+    suspend_thread(self_tobj(), current, /* single_suspend */ false);
   }
   return JVMTI_ERROR_NONE;
 } /* end SuspendAllVirtualThreads */
@@ -2718,10 +2718,6 @@ JvmtiEnv::GetSourceFileName(oop k_mirror, char** source_name_ptr) {
 jvmtiError
 JvmtiEnv::GetClassModifiers(oop k_mirror, jint* modifiers_ptr) {
   jint result = java_lang_Class::modifiers(k_mirror);
-  if (!java_lang_Class::is_primitive(k_mirror)) {
-    // Reset the deleted  ACC_SUPER bit (deleted in compute_modifier_flags()).
-    result |= JVM_ACC_SUPER;
-  }
   *modifiers_ptr = result;
 
   return JVMTI_ERROR_NONE;
@@ -2849,7 +2845,8 @@ JvmtiEnv::GetClassFields(oop k_mirror, jint* field_count_ptr, jfieldID** fields_
   jfieldID* result_list = (jfieldID*)jvmtiMalloc(result_count * sizeof(jfieldID));
   for (int i = 0; i < result_count; i++, flds.next()) {
     result_list[i] = jfieldIDWorkaround::to_jfieldID(ik, flds.offset(),
-                                                     flds.access_flags().is_static());
+                                                     flds.access_flags().is_static(),
+                                                     flds.field_descriptor().is_flat());
   }
   assert(flds.done(), "just checking");
 
@@ -2887,8 +2884,9 @@ JvmtiEnv::GetImplementedInterfaces(oop k_mirror, jint* interface_count_ptr, jcla
       return JVMTI_ERROR_NONE;
     }
 
-    Array<InstanceKlass*>* interface_list = InstanceKlass::cast(k)->local_interfaces();
-    const int result_length = (interface_list == nullptr ? 0 : interface_list->length());
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    Array<InstanceKlass*>* interface_list = ik->local_interfaces();
+    int result_length = (interface_list == nullptr ? 0 : interface_list->length());
     jclass* result_list = (jclass*) jvmtiMalloc(result_length * sizeof(jclass));
     for (int i_index = 0; i_index < result_length; i_index += 1) {
       InstanceKlass* klass_at = interface_list->at(i_index);
@@ -3084,9 +3082,12 @@ JvmtiEnv::GetObjectHashCode(jobject object, jint* hash_code_ptr) {
   NULL_CHECK(mirror, JVMTI_ERROR_INVALID_OBJECT);
   NULL_CHECK(hash_code_ptr, JVMTI_ERROR_NULL_POINTER);
 
-  {
-    jint result = (jint) mirror->identity_hash();
-    *hash_code_ptr = result;
+  if (mirror->is_inline_type()) {
+    // For inline types, use the klass as a hash code.
+    // TBD to improve this (see also JvmtiTagMapKey::get_hash for similar case).
+    *hash_code_ptr = (jint)((int64_t)mirror->klass() >> 3);
+  } else {
+    *hash_code_ptr = (jint)mirror->identity_hash();
   }
   return JVMTI_ERROR_NONE;
 } /* end GetObjectHashCode */

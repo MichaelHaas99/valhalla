@@ -31,7 +31,7 @@
 #include "opto/connode.hpp"
 #include "opto/loopnode.hpp"
 #include "opto/phaseX.hpp"
-#include "opto/predicates.hpp"
+#include "opto/predicates_enums.hpp"
 #include "opto/runtime.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/subnode.hpp"
@@ -1272,6 +1272,23 @@ bool IfNode::is_null_check(ProjNode* proj, PhaseIterGVN* igvn) {
   return false;
 }
 
+// Returns true if this IfNode belongs to a flat array check
+// and returns the corresponding array in the 'array' parameter.
+bool IfNode::is_flat_array_check(PhaseTransform* phase, Node** array) {
+  Node* bol = in(1);
+  if (!bol->is_Bool()) {
+    return false;
+  }
+  Node* cmp = bol->in(1);
+  if (cmp->isa_FlatArrayCheck()) {
+    if (array != nullptr) {
+      *array = cmp->in(FlatArrayCheckNode::ArrayOrKlass);
+    }
+    return true;
+  }
+  return false;
+}
+
 // Check that the If that is in between the 2 integer comparisons has
 // no side effect
 bool IfNode::is_side_effect_free_test(ProjNode* proj, PhaseIterGVN* igvn) {
@@ -2169,7 +2186,7 @@ Node* RangeCheckNode::Ideal(PhaseGVN *phase, bool can_reshape) {
 ParsePredicateNode::ParsePredicateNode(Node* control, Deoptimization::DeoptReason deopt_reason, PhaseGVN* gvn)
     : IfNode(control, gvn->intcon(1), PROB_MAX, COUNT_UNKNOWN),
       _deopt_reason(deopt_reason),
-      _useless(false) {
+      _predicate_state(PredicateState::Useful) {
   init_class_id(Class_ParsePredicate);
   gvn->C->add_parse_predicate(this);
   gvn->C->record_for_post_loop_opts_igvn(this);
@@ -2186,6 +2203,11 @@ ParsePredicateNode::ParsePredicateNode(Node* control, Deoptimization::DeoptReaso
 #endif // ASSERT
 }
 
+void ParsePredicateNode::mark_useless(PhaseIterGVN& igvn) {
+  _predicate_state = PredicateState::Useless;
+  igvn._worklist.push(this);
+}
+
 Node* ParsePredicateNode::uncommon_trap() const {
   ParsePredicateUncommonProj* uncommon_proj = proj_out(0)->as_IfFalse();
   Node* uct_region_or_call = uncommon_proj->unique_ctrl_out();
@@ -2195,14 +2217,15 @@ Node* ParsePredicateNode::uncommon_trap() const {
 
 // Fold this node away once it becomes useless or at latest in post loop opts IGVN.
 const Type* ParsePredicateNode::Value(PhaseGVN* phase) const {
+  assert(_predicate_state != PredicateState::MaybeUseful, "should only be MaybeUseful when eliminating useless "
+                                                          "predicates during loop opts");
   if (phase->type(in(0)) == Type::TOP) {
     return Type::TOP;
   }
-  if (_useless || phase->C->post_loop_opts_phase()) {
+  if (_predicate_state == PredicateState::Useless || phase->C->post_loop_opts_phase()) {
     return TypeTuple::IFTRUE;
-  } else {
-    return bottom_type();
   }
+  return bottom_type();
 }
 
 #ifndef PRODUCT
@@ -2224,7 +2247,7 @@ void ParsePredicateNode::dump_spec(outputStream* st) const {
     default:
       fatal("unknown kind");
   }
-  if (_useless) {
+  if (_predicate_state == PredicateState::Useless) {
     st->print("#useless ");
   }
 }

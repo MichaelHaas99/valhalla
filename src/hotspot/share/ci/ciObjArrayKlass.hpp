@@ -72,6 +72,10 @@ public:
   static ciObjArrayKlass* make(ciKlass* element_klass, int dims);
 
   virtual ciKlass* exact_klass();
+
+  virtual bool can_be_inline_array_klass() {
+    return element_klass()->can_be_inline_klass();
+  }
 };
 
 #endif // SHARE_CI_CIOBJARRAYKLASS_HPP

@@ -44,8 +44,10 @@ class ciKlass : public ciType {
   friend class ciMethod;
   friend class ciMethodData;
   friend class ciObjArrayKlass;
-  friend class ciSignature;
   friend class ciReceiverTypeData;
+  friend class ciSignature;
+  friend class ciFlatArrayKlass;
+  friend class ciArrayKlass;
 
 private:
   ciSymbol* _name;
@@ -104,6 +106,14 @@ public:
     return false;
   }
 
+  virtual bool can_be_inline_klass(bool is_exact = false) {
+    return false;
+  }
+
+  virtual bool can_be_inline_array_klass() {
+    return EnableValhalla && is_java_lang_Object();
+  }
+
   bool is_in_encoding_range() {
     Klass* k = get_Klass();
     bool is_in_encoding_range = CompressedKlassPointers::is_encodable(k);
@@ -124,6 +134,8 @@ public:
 
   // Fetch Klass::access_flags.
   jint                   access_flags();
+
+  markWord prototype_header() const;
 
   // Fetch Klass::misc_flags.
   klass_flags_t          misc_flags();

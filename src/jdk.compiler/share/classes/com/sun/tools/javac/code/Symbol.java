@@ -30,7 +30,6 @@ import java.lang.annotation.Inherited;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -404,8 +403,20 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
              name != name.table.names._this;
     }
 
+    public boolean isStrict() {
+        return (flags() & STRICT) != 0;
+    }
+
+    public boolean isStrictInstance() {
+        return (flags() & STRICT) != 0 && (flags() & STATIC) == 0;
+    }
+
+    public boolean hasStrict() {
+        return (flags() & HAS_STRICT) != 0;
+    }
+
     public boolean isInterface() {
-        return (flags() & INTERFACE) != 0;
+        return (flags_field & INTERFACE) != 0;
     }
 
     public boolean isAbstract() {
@@ -414,6 +425,14 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
 
     public boolean isPrivate() {
         return (flags_field & Flags.AccessFlags) == PRIVATE;
+    }
+
+    public boolean isValueClass() {
+        return (flags_field & VALUE_CLASS) != 0;
+    }
+
+    public boolean isIdentityClass() {
+        return !isInterface() && (flags_field & IDENTITY_TYPE) != 0;
     }
 
     public boolean isPublic() {
@@ -1341,7 +1360,7 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
             this(
                 flags,
                 name,
-                new ClassType(Type.noType, null, null),
+                new ClassType(Type.noType, null, null, List.nil()),
                 owner);
             this.type.tsym = this;
         }

@@ -26,6 +26,7 @@
 package java.lang;
 
 import jdk.internal.misc.CDS;
+import jdk.internal.value.DeserializeConstructor;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 import jdk.internal.vm.annotation.Stable;
 
@@ -168,10 +169,18 @@ import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
  * <a href="http://www.unicode.org/glossary/">Unicode Glossary</a>.
  *
  * <p>This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
- * class; programmers should treat instances that are
- * {@linkplain #equals(Object) equal} as interchangeable and should not
- * use instances for synchronization, or unpredictable behavior may
- * occur. For example, in a future release, synchronization may fail.
+ * class; programmers should treat instances that are {@linkplain #equals(Object) equal}
+ * as interchangeable and should not use instances for synchronization, mutexes, or
+ * with {@linkplain java.lang.ref.Reference object references}.
+ *
+ * <div class="preview-block">
+ *      <div class="preview-comment">
+ *          When preview features are enabled, {@code Character} is a {@linkplain Class#isValue value class}.
+ *          Use of value class instances for synchronization, mutexes, or with
+ *          {@linkplain java.lang.ref.Reference object references} result in
+ *          {@link IdentityException}.
+ *      </div>
+ * </div>
  *
  * @spec https://www.unicode.org/reports/tr27 Unicode 3.1.0
  * @author  Lee Boynton
@@ -181,9 +190,9 @@ import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
  * @author  Ulf Zibis
  * @since   1.0
  */
+@jdk.internal.MigratedValueClass
 @jdk.internal.ValueBased
-public final
-class Character implements java.io.Serializable, Comparable<Character>, Constable {
+public final class Character implements java.io.Serializable, Comparable<Character>, Constable {
     /**
      * The minimum radix available for conversion to and from strings.
      * The constant value of this field is the smallest value permitted
@@ -9279,6 +9288,7 @@ class Character implements java.io.Serializable, Comparable<Character>, Constabl
      * @since  1.5
      */
     @IntrinsicCandidate
+    @DeserializeConstructor
     public static Character valueOf(char c) {
         if (c <= 127) { // must cache
             return CharacterCache.cache[(int)c];

@@ -59,10 +59,13 @@ class   ciMethod;
 class   ciMethodData;
 class     ciReceiverTypeData;  // part of ciMethodData
 class   ciType;
+class    ciWrapper;
 class    ciReturnAddress;
 class    ciKlass;
 class     ciInstanceKlass;
+class       ciInlineKlass;
 class     ciArrayKlass;
+class       ciFlatArrayKlass;
 class       ciObjArrayKlass;
 class       ciTypeArrayKlass;
 
@@ -110,9 +113,12 @@ friend class ciReplay;                 \
 friend class ciTypeArray;              \
 friend class ciType;                   \
 friend class ciReturnAddress;          \
+friend class  ciWrapper;               \
 friend class ciKlass;                  \
 friend class ciInstanceKlass;          \
+friend class ciInlineKlass;            \
 friend class ciArrayKlass;             \
+friend class ciFlatArrayKlass;         \
 friend class ciObjArrayKlass;          \
 friend class ciTypeArrayKlass;         \
 

@@ -63,11 +63,26 @@ inline InstanceKlass* volatile* InstanceKlass::adr_implementor() const {
   }
 }
 
-inline ObjArrayKlass* InstanceKlass::array_klasses_acquire() const {
+inline InlineKlass* InstanceKlass::get_inline_type_field_klass(int idx) const {
+  assert(has_inline_type_fields(), "Sanity checking");
+  assert(idx < java_fields_count(), "IOOB");
+  InlineKlass* k = inline_layout_info(idx).klass();
+  assert(k != nullptr, "Should always be set before being read");
+  return k;
+}
+
+inline InlineKlass* InstanceKlass::get_inline_type_field_klass_or_null(int idx) const {
+  assert(has_inline_type_fields(), "Sanity checking");
+  assert(idx < java_fields_count(), "IOOB");
+  InlineKlass* k = inline_layout_info(idx).klass();
+  return k;
+}
+
+inline ArrayKlass* InstanceKlass::array_klasses_acquire() const {
   return Atomic::load_acquire(&_array_klasses);
 }
 
-inline void InstanceKlass::release_set_array_klasses(ObjArrayKlass* k) {
+inline void InstanceKlass::release_set_array_klasses(ArrayKlass* k) {
   Atomic::release_store(&_array_klasses, k);
 }
 

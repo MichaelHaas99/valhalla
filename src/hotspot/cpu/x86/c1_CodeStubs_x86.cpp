@@ -29,6 +29,7 @@
 #include "c1/c1_Runtime1.hpp"
 #include "classfile/javaClasses.hpp"
 #include "nativeInst_x86.hpp"
+#include "oops/objArrayKlass.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "utilities/align.hpp"
 #include "utilities/macros.hpp"
@@ -169,6 +170,79 @@ void DivByZeroStub::emit_code(LIR_Assembler* ce) {
 }
 
 
+// Implementation of LoadFlattenedArrayStub
+
+LoadFlattenedArrayStub::LoadFlattenedArrayStub(LIR_Opr array, LIR_Opr index, LIR_Opr result, CodeEmitInfo* info) {
+  _array = array;
+  _index = index;
+  _result = result;
+  // Tell the register allocator that the runtime call will scratch rax.
+  _scratch_reg = FrameMap::rax_oop_opr;
+  _info = new CodeEmitInfo(info);
+}
+
+void LoadFlattenedArrayStub::emit_code(LIR_Assembler* ce) {
+  assert(__ rsp_offset() == 0, "frame size should be fixed");
+  __ bind(_entry);
+  ce->store_parameter(_array->as_register(), 1);
+  ce->store_parameter(_index->as_register(), 0);
+  __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::load_flat_array_id)));
+  ce->add_call_info_here(_info);
+  ce->verify_oop_map(_info);
+  if (_result->as_register() != rax) {
+    __ movptr(_result->as_register(), rax);
+  }
+  __ jmp(_continuation);
+}
+
+
+// Implementation of StoreFlattenedArrayStub
+
+StoreFlattenedArrayStub::StoreFlattenedArrayStub(LIR_Opr array, LIR_Opr index, LIR_Opr value, CodeEmitInfo* info) {
+  _array = array;
+  _index = index;
+  _value = value;
+  // Tell the register allocator that the runtime call will scratch rax.
+  _scratch_reg = FrameMap::rax_oop_opr;
+  _info = new CodeEmitInfo(info);
+}
+
+
+void StoreFlattenedArrayStub::emit_code(LIR_Assembler* ce) {
+  assert(__ rsp_offset() == 0, "frame size should be fixed");
+  __ bind(_entry);
+  ce->store_parameter(_array->as_register(), 2);
+  ce->store_parameter(_index->as_register(), 1);
+  ce->store_parameter(_value->as_register(), 0);
+  __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::store_flat_array_id)));
+  ce->add_call_info_here(_info);
+  ce->verify_oop_map(_info);
+  __ jmp(_continuation);
+}
+
+
+// Implementation of SubstitutabilityCheckStub
+
+SubstitutabilityCheckStub::SubstitutabilityCheckStub(LIR_Opr left, LIR_Opr right, CodeEmitInfo* info) {
+  _left = left;
+  _right = right;
+  // Tell the register allocator that the runtime call will scratch rax.
+  _scratch_reg = FrameMap::rax_oop_opr;
+  _info = new CodeEmitInfo(info);
+}
+
+void SubstitutabilityCheckStub::emit_code(LIR_Assembler* ce) {
+  assert(__ rsp_offset() == 0, "frame size should be fixed");
+  __ bind(_entry);
+  ce->store_parameter(_left->as_register(), 1);
+  ce->store_parameter(_right->as_register(), 0);
+  __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::substitutability_check_id)));
+  ce->add_call_info_here(_info);
+  ce->verify_oop_map(_info);
+  __ jmp(_continuation);
+}
+
+
 // Implementation of NewInstanceStub
 
 NewInstanceStub::NewInstanceStub(LIR_Opr klass_reg, LIR_Opr result, ciInstanceKlass* klass, CodeEmitInfo* info, C1StubId stub_id) {
@@ -221,11 +295,13 @@ void NewTypeArrayStub::emit_code(LIR_Assembler* ce) {
 
 // Implementation of NewObjectArrayStub
 
-NewObjectArrayStub::NewObjectArrayStub(LIR_Opr klass_reg, LIR_Opr length, LIR_Opr result, CodeEmitInfo* info) {
+NewObjectArrayStub::NewObjectArrayStub(LIR_Opr klass_reg, LIR_Opr length, LIR_Opr result,
+                                       CodeEmitInfo* info, bool is_null_free) {
   _klass_reg = klass_reg;
   _result = result;
   _length = length;
   _info = new CodeEmitInfo(info);
+  _is_null_free = is_null_free;
 }
 
 
@@ -234,7 +310,11 @@ void NewObjectArrayStub::emit_code(LIR_Assembler* ce) {
   __ bind(_entry);
   assert(_length->as_register() == rbx, "length must in rbx,");
   assert(_klass_reg->as_register() == rdx, "klass_reg must in rdx");
-  __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::new_object_array_id)));
+  if (_is_null_free) {
+    __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::new_null_free_array_id)));
+  } else {
+    __ call(RuntimeAddress(Runtime1::entry_for(C1StubId::new_object_array_id)));
+  }
   ce->add_call_info_here(_info);
   ce->verify_oop_map(_info);
   assert(_result->as_register() == rax, "result must in rax,");
@@ -244,6 +324,15 @@ void NewObjectArrayStub::emit_code(LIR_Assembler* ce) {
 void MonitorEnterStub::emit_code(LIR_Assembler* ce) {
   assert(__ rsp_offset() == 0, "frame size should be fixed");
   __ bind(_entry);
+  if (_throw_ie_stub != nullptr) {
+    // When we come here, _obj_reg has already been checked to be non-null.
+    const int is_value_mask = markWord::inline_type_pattern;
+    Register mark = _scratch_reg->as_register();
+    __ movptr(mark, Address(_obj_reg->as_register(), oopDesc::mark_offset_in_bytes()));
+    __ andptr(mark, is_value_mask);
+    __ cmpl(mark, is_value_mask);
+    __ jcc(Assembler::equal, *_throw_ie_stub->entry());
+  }
   ce->store_parameter(_obj_reg->as_register(),  1);
   ce->store_parameter(_lock_reg->as_register(), 0);
   C1StubId enter_id;
@@ -360,17 +449,11 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
     }
     assert(_obj != noreg, "must be a valid register");
     Register tmp = rax;
-    Register tmp2 = rbx;
     __ push(tmp);
-    __ push(tmp2);
-    // Load without verification to keep code size small. We need it because
-    // begin_initialized_entry_offset has to fit in a byte. Also, we know it's not null.
-    __ movptr(tmp2, Address(_obj, java_lang_Class::klass_offset()));
-    __ get_thread(tmp);
-    __ cmpptr(tmp, Address(tmp2, InstanceKlass::init_thread_offset()));
-    __ pop(tmp2);
-    __ pop(tmp);
-    __ jcc(Assembler::notEqual, call_patch);
+    __ movptr(tmp, Address(_obj, java_lang_Class::klass_offset()));
+    __ cmpptr(r15_thread, Address(tmp, InstanceKlass::init_thread_offset()));
+    __ pop(tmp); // pop it right away, no matter which path we take
+    __ jccb(Assembler::notEqual, call_patch);
 
     // access_field patches may execute the patched code before it's
     // copied back into place so we need to jump back into the main

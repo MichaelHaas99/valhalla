@@ -1832,7 +1832,7 @@ void InterpreterMacroAssembler::profile_arguments_type(Register callee,
         // argument. tmp1 is the number of cells left in the
         // CallTypeData/VirtualCallTypeData to reach its end. Non null
         // if there's a return to profile.
-        assert(ReturnTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(),
+        assert(SingleTypeEntry::static_cell_count() < TypeStackSlotEntries::per_arg_count(),
                "can't move past ret type");
         sldi(tmp1, tmp1, exact_log2(DataLayout::cell_size));
         add(R28_mdx, tmp1, R28_mdx);
@@ -1873,7 +1873,7 @@ void InterpreterMacroAssembler::profile_return_type(Register ret, Register tmp1,
       bne(CR0, profile_continue);
     }
 
-    profile_obj_type(ret, R28_mdx, -in_bytes(ReturnTypeEntry::size()), tmp1, tmp2);
+    profile_obj_type(ret, R28_mdx, -in_bytes(SingleTypeEntry::size()), tmp1, tmp2);
 
     align(32, 12);
     bind(profile_continue);
@@ -2379,12 +2379,6 @@ static bool verify_return_address(Method* m, int bci) {
   if (*jsr_pc == Bytecodes::_jsr_w && jsr_pc >= m->code_base())    return true;
 #endif // PRODUCT
   return false;
-}
-
-void InterpreterMacroAssembler::verify_FPU(int stack_depth, TosState state) {
-  if (VerifyFPU) {
-    unimplemented("verfiyFPU");
-  }
 }
 
 void InterpreterMacroAssembler::verify_oop_or_return_address(Register reg, Register Rtmp) {

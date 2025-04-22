@@ -144,6 +144,9 @@
     return (intptr_t*) addr_at(offset);
   }
 
+  // Support for scalarized inline type calling convention
+  intptr_t* repair_sender_sp(intptr_t* sender_sp, intptr_t** saved_fp_addr) const;
+
 #ifdef ASSERT
   // Used in frame::sender_for_{interpreter,compiled}_frame
   static void verify_deopt_original_pc(nmethod* nm, intptr_t* unextended_sp);

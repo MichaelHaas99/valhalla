@@ -67,7 +67,9 @@ private:
   ciInstance*            _java_mirror;
 
   ciConstantPoolCache*   _field_cache;  // cached map index->field
-  GrowableArray<ciField*>* _nonstatic_fields;
+ public:
+  GrowableArray<ciField*>* _nonstatic_fields;  // ordered by JavaFieldStream
+ private:
   int                    _has_injected_fields; // any non static injected fields? lazily initialized.
 
   // The possible values of the _implementor fall into following three cases:
@@ -83,7 +85,7 @@ private:
 
 protected:
   ciInstanceKlass(Klass* k);
-  ciInstanceKlass(ciSymbol* name, jobject loader);
+  ciInstanceKlass(ciSymbol* name, jobject loader, BasicType bt = T_OBJECT); // for unloaded klasses
 
   InstanceKlass* get_instanceKlass() const {
     return InstanceKlass::cast(get_Klass());
@@ -104,8 +106,8 @@ protected:
 
   void compute_shared_init_state();
   bool compute_shared_has_subklass();
-  int  compute_nonstatic_fields();
-  GrowableArray<ciField*>* compute_nonstatic_fields_impl(GrowableArray<ciField*>* super_fields);
+  virtual int compute_nonstatic_fields();
+  GrowableArray<ciField*>* compute_nonstatic_fields_impl(GrowableArray<ciField*>* super_fields, bool flatten = true);
   bool compute_has_trusted_loader();
 
   // Update the init_state for shared klasses
@@ -203,13 +205,16 @@ public:
   ciInstanceKlass* get_canonical_holder(int offset);
   ciField* get_field_by_offset(int field_offset, bool is_static);
   ciField* get_field_by_name(ciSymbol* name, ciSymbol* signature, bool is_static);
+  // get field descriptor at field_offset ignoring flattening
+  ciField* get_non_flat_field_by_offset(int field_offset);
 
   // total number of nonstatic fields (including inherited):
   int nof_nonstatic_fields() {
-    if (_nonstatic_fields == nullptr)
+    if (_nonstatic_fields == nullptr) {
       return compute_nonstatic_fields();
-    else
+    } else {
       return _nonstatic_fields->length();
+    }
   }
 
   bool has_injected_fields() {
@@ -240,9 +245,9 @@ public:
   // Java access flags
   bool is_public      () { return flags().is_public(); }
   bool is_final       () { return flags().is_final(); }
-  bool is_super       () { return flags().is_super(); }
   bool is_interface   () { return flags().is_interface(); }
   bool is_abstract    () { return flags().is_abstract(); }
+  bool is_abstract_value_klass() { return is_abstract() && !flags().is_identity(); }
 
   ciMethod* find_method(ciSymbol* name, ciSymbol* signature);
   // Note:  To find a method from name and type strings, use ciSymbol::make,
@@ -256,6 +261,8 @@ public:
     ciInstanceKlass* impl = implementor();
     return (impl != this ? impl : nullptr);
   }
+
+  virtual bool can_be_inline_klass(bool is_exact = false);
 
   // Is the defining class loader of this class the default loader?
   bool uses_default_loader() const;

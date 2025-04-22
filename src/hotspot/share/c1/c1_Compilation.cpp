@@ -25,8 +25,8 @@
 #include "c1/c1_CFGPrinter.hpp"
 #include "c1/c1_Compilation.hpp"
 #include "c1/c1_IR.hpp"
-#include "c1/c1_LIRAssembler.hpp"
 #include "c1/c1_LinearScan.hpp"
+#include "c1/c1_LIRAssembler.hpp"
 #include "c1/c1_MacroAssembler.hpp"
 #include "c1/c1_RangeCheckElimination.hpp"
 #include "c1/c1_ValueMap.hpp"
@@ -34,11 +34,10 @@
 #include "code/debugInfoRec.hpp"
 #include "compiler/compilationFailureInfo.hpp"
 #include "compiler/compilationMemoryStatistic.hpp"
-#include "compiler/compilerDirectives.hpp"
 #include "compiler/compileLog.hpp"
-#include "compiler/compileTask.hpp"
 #include "compiler/compiler_globals.hpp"
 #include "compiler/compilerDirectives.hpp"
+#include "compiler/compileTask.hpp"
 #include "memory/resourceArea.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/timerTrace.hpp"
@@ -586,6 +585,7 @@ Compilation::Compilation(AbstractCompiler* compiler, ciEnv* env, ciMethod* metho
 , _code(buffer_blob)
 , _has_access_indexed(false)
 , _interpreter_frame_size(0)
+, _compiled_entry_signature(method->get_Method())
 , _immediate_oops_patched(0)
 , _current_instruction(nullptr)
 #ifndef PRODUCT
@@ -603,8 +603,13 @@ Compilation::Compilation(AbstractCompiler* compiler, ciEnv* env, ciMethod* metho
     _cfg_printer_output = new CFGPrinterOutput(this);
   }
 #endif
-
   CompilationMemoryStatisticMark cmsm(directive);
+
+  {
+    ResetNoHandleMark rnhm; // Huh? Required when doing class lookup of the Q-types
+    // TODO 8284443 Should only be computed once
+    _compiled_entry_signature.compute_calling_conventions(false);
+  }
 
   compile_method();
   if (bailed_out()) {

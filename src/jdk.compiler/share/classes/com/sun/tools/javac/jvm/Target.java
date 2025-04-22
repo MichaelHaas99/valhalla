@@ -220,6 +220,12 @@ public enum Target {
         return compareTo(JDK1_15) >= 0;
     }
 
+    /** Does the target VM support value classes
+     */
+    public boolean hasValueClasses() {
+        return compareTo(JDK1_23) >= 0;
+    }
+
     /** Is the ACC_STRICT bit redundant and obsolete
      */
     public boolean obsoleteAccStrict() {
@@ -237,5 +243,12 @@ public enum Target {
      */
     public boolean usesReferenceOnlySelectorTypes() {
         return compareTo(Target.JDK1_23) < 0;
+    }
+
+    /**
+     * Should we emit a null check against incoming outer this argument by default?
+     */
+    public boolean nullCheckOuterThisByDefault() {
+        return compareTo(JDK1_25) >= 0;
     }
 }

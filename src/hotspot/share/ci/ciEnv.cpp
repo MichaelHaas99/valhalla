@@ -25,6 +25,7 @@
 #include "ci/ciConstant.hpp"
 #include "ci/ciEnv.hpp"
 #include "ci/ciField.hpp"
+#include "ci/ciInlineKlass.hpp"
 #include "ci/ciInstance.hpp"
 #include "ci/ciInstanceKlass.hpp"
 #include "ci/ciMethod.hpp"
@@ -42,8 +43,8 @@
 #include "compiler/compilationLog.hpp"
 #include "compiler/compilationPolicy.hpp"
 #include "compiler/compileBroker.hpp"
-#include "compiler/compilerEvent.hpp"
 #include "compiler/compileLog.hpp"
+#include "compiler/compilerEvent.hpp"
 #include "compiler/compileTask.hpp"
 #include "compiler/disassembler.hpp"
 #include "gc/shared/collectedHeap.inline.hpp"
@@ -476,7 +477,8 @@ ciKlass* ciEnv::get_klass_by_name_impl(ciKlass* accessing_klass,
   // to be loaded if their element klasses are loaded, except when memory
   // is exhausted.
   if (Signature::is_array(sym) &&
-      (sym->char_at(1) == JVM_SIGNATURE_ARRAY || sym->char_at(1) == JVM_SIGNATURE_CLASS)) {
+      (sym->char_at(1) == JVM_SIGNATURE_ARRAY ||
+       sym->char_at(1) == JVM_SIGNATURE_CLASS )) {
     // We have an unloaded array.
     // Build it on the fly if the element class exists.
     SignatureStream ss(sym, false);
@@ -489,7 +491,7 @@ ciKlass* ciEnv::get_klass_by_name_impl(ciKlass* accessing_klass,
                              require_local);
     if (elem_klass != nullptr && elem_klass->is_loaded()) {
       // Now make an array for it
-      return ciObjArrayKlass::make_impl(elem_klass);
+      return ciArrayKlass::make(elem_klass);
     }
   }
 
@@ -515,6 +517,10 @@ ciKlass* ciEnv::get_klass_by_name_impl(ciKlass* accessing_klass,
 
   // Not yet loaded into the VM, or not governed by loader constraints.
   // Make a CI representative for it.
+  int i = 0;
+  while (sym->char_at(i) == JVM_SIGNATURE_ARRAY) {
+    i++;
+  }
   return get_unloaded_klass(accessing_klass, name);
 }
 

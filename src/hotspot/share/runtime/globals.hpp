@@ -803,8 +803,32 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, UseXMMForArrayCopy, false,                                  \
           "Use SSE2 MOVQ instruction for Arraycopy")                        \
                                                                             \
-  develop(bool, PrintFieldLayout, false,                                    \
+  product(bool, PrintFieldLayout, false, DIAGNOSTIC,                        \
           "Print field layout for each class")                              \
+                                                                            \
+  product(bool, PrintInlineLayout, false, DIAGNOSTIC,                       \
+          "Print field layout for each inline type or class with inline fields") \
+                                                                            \
+  product(bool, PrintFlatArrayLayout, false, DIAGNOSTIC,                    \
+          "Print array layout for each inline type array")                  \
+                                                                            \
+  product(bool, UseArrayFlattening, true,                                   \
+          "Allow the VM to flatten arrays")                                 \
+                                                                            \
+  product(bool, UseFieldFlattening, true,                                   \
+          "Allow the VM to flatten value fields")                           \
+                                                                            \
+  product(bool, UseNonAtomicValueFlattening, true,                          \
+          "Allow the JVM to flatten some non-atomic null-free values")      \
+                                                                            \
+  product(bool, UseNullableValueFlattening, false,                          \
+          "Allow the JVM to flatten some nullable values")                  \
+                                                                            \
+  product(bool, UseAtomicValueFlattening, false,                            \
+          "Allow the JVM to flatten some atomic values")                    \
+                                                                            \
+  product(intx, FlatArrayElementMaxOops, 4,                                 \
+          "Max nof embedded object references in an inline type to flatten, <0 no limit")  \
                                                                             \
   /* Need to limit the extent of the padding to reasonable size.          */\
   /* 8K is well beyond the reasonable HW cache line size, even with       */\
@@ -1430,7 +1454,7 @@ const int ObjectAlignmentInBytes = 8;
                                                                             \
   product(size_t, MinHeapDeltaBytes, ScaleForWordSize(128*K),               \
           "The minimum change in heap space due to GC (in bytes)")          \
-          range(0, max_uintx)                                               \
+          range(0, max_uintx / 2 + 1)                                       \
                                                                             \
   product(size_t, MinMetaspaceExpansion, ScaleForWordSize(256*K),           \
           "The minimum expansion of Metaspace (in bytes)")                  \
@@ -1566,13 +1590,13 @@ const int ObjectAlignmentInBytes = 8;
           "Minimal number of lookupswitch entries for rewriting to binary " \
           "switch")                                                         \
                                                                             \
-  develop(intx, StopInterpreterAt, 0,                                       \
+  develop(uintx, StopInterpreterAt, 0,                                      \
           "Stop interpreter execution at specified bytecode number")        \
                                                                             \
-  develop(intx, TraceBytecodesAt, 0,                                        \
+  develop(uintx, TraceBytecodesAt, 0,                                       \
           "Trace bytecodes starting with specified bytecode number")        \
                                                                             \
-  develop(intx, TraceBytecodesStopAt, 0,                                    \
+  develop(uintx, TraceBytecodesStopAt, 0,                                   \
           "Stop bytecode tracing at the specified bytecode number")         \
                                                                             \
   /* Priorities */                                                          \
@@ -1772,6 +1796,9 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, VerifyMethodHandles, trueInDebug, DIAGNOSTIC,               \
           "perform extra checks when constructing method handles")          \
                                                                             \
+  product(bool, IgnoreAssertUnsetFields, false, DIAGNOSTIC,                           \
+          "Ignore assert_unset_fields")                                     \
+                                                                            \
   product(bool, ShowHiddenFrames, false, DIAGNOSTIC,                        \
           "show method handle implementation frames (usually hidden)")      \
                                                                             \
@@ -1942,6 +1969,23 @@ const int ObjectAlignmentInBytes = 8;
                                                                             \
   product(bool, UseFastUnorderedTimeStamps, false, EXPERIMENTAL,            \
           "Use platform unstable time where supported for timestamps only") \
+                                                                            \
+  product(bool, EnableValhalla, true,                                       \
+          "Enable experimental Valhalla features")                          \
+                                                                            \
+  product_pd(bool, InlineTypePassFieldsAsArgs,                              \
+          "Pass each inline type field as an argument at calls")            \
+                                                                            \
+  product_pd(bool, InlineTypeReturnedAsFields,                              \
+          "Return fields instead of an inline type reference")              \
+                                                                            \
+  develop(bool, StressCallingConvention, false,                             \
+          "Stress the scalarized calling convention.")                      \
+                                                                            \
+  product(ccstrlist, ForceNonTearable, "", DIAGNOSTIC,                      \
+          "List of inline classes which are forced to be atomic "           \
+          "(whitespace and commas separate names, "                         \
+          "and leading and trailing stars '*' are wildcards)")              \
                                                                             \
   product(bool, DeoptimizeNMethodBarriersALot, false, DIAGNOSTIC,           \
                 "Make nmethod barriers deoptimise a lot.")                  \

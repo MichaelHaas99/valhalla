@@ -153,14 +153,17 @@ bool frame::safe_for_sender(JavaThread *thread) {
       if (!thread->is_in_full_stack_checked((address)sender_sp)) {
         return false;
       }
-      sender_unextended_sp = sender_sp;
       // Note: frame::sender_sp_offset is only valid for compiled frame
-      saved_fp = (intptr_t*) *(sender_sp - frame::sender_sp_offset);
+      intptr_t **saved_fp_addr = (intptr_t**) (sender_sp - frame::sender_sp_offset);
+      saved_fp = *saved_fp_addr;
       // Note: PAC authentication may fail in case broken frame is passed in.
       // Just strip it for now.
       sender_pc = pauth_strip_pointer((address) *(sender_sp - 1));
-    }
 
+      // Repair the sender sp if this is a method with scalarized inline type args
+      sender_sp = repair_sender_sp(sender_sp, saved_fp_addr);
+      sender_unextended_sp = sender_sp;
+    }
     if (Continuation::is_return_barrier_entry(sender_pc)) {
       // sender_pc might be invalid so check that the frame
       // actually belongs to a Continuation.
@@ -821,6 +824,22 @@ frame::frame(void* sp, void* fp, void* pc) {
 }
 
 #endif
+
+// Check for a method with scalarized inline type arguments that needs
+// a stack repair and return the repaired sender stack pointer.
+intptr_t* frame::repair_sender_sp(intptr_t* sender_sp, intptr_t** saved_fp_addr) const {
+  nmethod* nm = _cb->as_nmethod_or_null();
+  if (nm != nullptr && nm->needs_stack_repair()) {
+    // The stack increment resides just below the saved FP on the stack and
+    // records the total frame size excluding the two words for saving FP and LR.
+    intptr_t* sp_inc_addr = (intptr_t*) (saved_fp_addr - 1);
+    assert(*sp_inc_addr % StackAlignmentInBytes == 0, "sp_inc not aligned");
+    int real_frame_size = (*sp_inc_addr / wordSize) + 2;
+    assert(real_frame_size >= _cb->frame_size() && real_frame_size <= 1000000, "invalid frame size");
+    sender_sp = unextended_sp() + real_frame_size;
+  }
+  return sender_sp;
+}
 
 void JavaFrameAnchor::make_walkable() {
   // last frame set?

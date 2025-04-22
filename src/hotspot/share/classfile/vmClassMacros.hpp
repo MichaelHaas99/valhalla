@@ -125,6 +125,7 @@
   do_klass(CallConv_klass,                              jdk_internal_foreign_abi_CallConv                     ) \
   do_klass(ConstantCallSite_klass,                      java_lang_invoke_ConstantCallSite                     ) \
   do_klass(MutableCallSite_klass,                       java_lang_invoke_MutableCallSite                      ) \
+  do_klass(ValueObjectMethods_klass,                    java_lang_runtime_ValueObjectMethods                  ) \
   do_klass(VolatileCallSite_klass,                      java_lang_invoke_VolatileCallSite                     ) \
                                                                                                                 \
   do_klass(AssertionStatusDirectives_klass,             java_lang_AssertionStatusDirectives                   ) \

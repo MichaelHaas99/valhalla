@@ -68,6 +68,7 @@ class BootstrapInfo;
 class ClassFileStream;
 class ClassLoadInfo;
 class Dictionary;
+class AllFieldStream;
 class PackageEntry;
 class GCTimer;
 class EventClassLoad;
@@ -78,6 +79,7 @@ template <class E> class GrowableArray;
 class SystemDictionary : AllStatic {
   friend class AOTLinkedClassBulkLoader;
   friend class BootstrapInfo;
+  friend class LambdaProxyClassDictionary;
   friend class vmClasses;
 
  public:
@@ -111,7 +113,8 @@ class SystemDictionary : AllStatic {
   // Resolve a superclass or superinterface. Called from ClassFileParser,
   // parse_interfaces, resolve_instance_class_or_null, load_shared_class
   // "class_name" is the class whose super class or interface is being resolved.
-  static InstanceKlass* resolve_super_or_fail(Symbol* class_name, Symbol* super_name,
+  static InstanceKlass* resolve_with_circularity_detection_or_fail(Symbol* class_name,
+                                              Symbol* super_name,
                                               Handle class_loader,
                                               bool is_superclass, TRAPS) {
     return resolve_with_circularity_detection(class_name, super_name, class_loader, is_superclass, THREAD);
@@ -138,6 +141,7 @@ class SystemDictionary : AllStatic {
   static oop get_platform_class_loader_impl(TRAPS);
 
  public:
+
   // Resolve either a hidden or normal class from a stream of bytes, based on ClassLoadInfo
   static InstanceKlass* resolve_from_stream(ClassFileStream* st,
                                             Symbol* class_name,
@@ -325,16 +329,11 @@ private:
   static void restore_archived_method_handle_intrinsics_impl(TRAPS) NOT_CDS_RETURN;
 
 protected:
-  // Used by SystemDictionaryShared
+  // Used by SystemDictionaryShared and LambdaProxyClassDictionary
 
   static bool add_loader_constraint(Symbol* name, Klass* klass_being_linked,  Handle loader1,
                                     Handle loader2);
   static void post_class_load_event(EventClassLoad* event, const InstanceKlass* k, const ClassLoaderData* init_cld);
-  static InstanceKlass* load_shared_lambda_proxy_class(InstanceKlass* ik,
-                                                       Handle class_loader,
-                                                       Handle protection_domain,
-                                                       PackageEntry* pkg_entry,
-                                                       TRAPS);
   static InstanceKlass* load_shared_class(InstanceKlass* ik,
                                           Handle class_loader,
                                           Handle protection_domain,
@@ -345,6 +344,7 @@ protected:
   static InstanceKlass* find_or_define_instance_class(Symbol* class_name,
                                                       Handle class_loader,
                                                       InstanceKlass* k, TRAPS);
+
 public:
   static bool is_system_class_loader(oop class_loader);
   static bool is_platform_class_loader(oop class_loader);

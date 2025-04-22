@@ -128,7 +128,15 @@ jdk_lang = \
     jdk/internal/math \
     jdk/internal/vm \
     jdk/modules \
-    jni/nullCaller
+    jni/nullCaller \
+    valhalla
+
+# valhalla lworld tests
+jdk_valhalla = \
+    java/lang/invoke \
+    valhalla \
+    java/lang/instrument/valhalla
+
 
 # All of the java.util package
 jdk_util = \

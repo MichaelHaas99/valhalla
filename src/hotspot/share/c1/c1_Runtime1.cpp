@@ -49,8 +49,10 @@
 #include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
 #include "oops/access.inline.hpp"
-#include "oops/objArrayOop.inline.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
 #include "oops/objArrayKlass.hpp"
+#include "oops/objArrayOop.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "runtime/atomic.hpp"
@@ -119,8 +121,14 @@ uint Runtime1::_arraycopy_checkcast_cnt = 0;
 uint Runtime1::_arraycopy_checkcast_attempt_cnt = 0;
 uint Runtime1::_new_type_array_slowcase_cnt = 0;
 uint Runtime1::_new_object_array_slowcase_cnt = 0;
+uint Runtime1::_new_null_free_array_slowcase_cnt = 0;
 uint Runtime1::_new_instance_slowcase_cnt = 0;
 uint Runtime1::_new_multi_array_slowcase_cnt = 0;
+uint Runtime1::_load_flat_array_slowcase_cnt = 0;
+uint Runtime1::_store_flat_array_slowcase_cnt = 0;
+uint Runtime1::_substitutability_check_slowcase_cnt = 0;
+uint Runtime1::_buffer_inline_args_slowcase_cnt = 0;
+uint Runtime1::_buffer_inline_args_no_receiver_slowcase_cnt = 0;
 uint Runtime1::_monitorenter_slowcase_cnt = 0;
 uint Runtime1::_monitorexit_slowcase_cnt = 0;
 uint Runtime1::_patch_code_slowcase_cnt = 0;
@@ -130,6 +138,8 @@ uint Runtime1::_throw_div0_exception_count = 0;
 uint Runtime1::_throw_null_pointer_exception_count = 0;
 uint Runtime1::_throw_class_cast_exception_count = 0;
 uint Runtime1::_throw_incompatible_class_change_error_count = 0;
+uint Runtime1::_throw_illegal_monitor_state_exception_count = 0;
+uint Runtime1::_throw_identity_exception_count = 0;
 uint Runtime1::_throw_count = 0;
 
 static uint _byte_arraycopy_stub_cnt = 0;
@@ -229,12 +239,12 @@ CodeBlob* Runtime1::generate_blob(BufferBlob* buffer_blob, C1StubId id, const ch
                                                  CodeOffsets::frame_never_safe,
                                                  frame_size,
                                                  oop_maps,
-                                                 must_gc_arguments);
-  assert(blob != nullptr, "blob must exist");
+                                                 must_gc_arguments,
+                                                 false /* alloc_fail_is_fatal */ );
   return blob;
 }
 
-void Runtime1::generate_blob_for(BufferBlob* buffer_blob, C1StubId id) {
+bool Runtime1::generate_blob_for(BufferBlob* buffer_blob, C1StubId id) {
   assert(C1StubId::NO_STUBID < id && id < C1StubId::NUM_STUBIDS, "illegal stub id");
   bool expect_oop_map = true;
 #ifdef ASSERT
@@ -257,14 +267,19 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, C1StubId id) {
   CodeBlob* blob = generate_blob(buffer_blob, id, name_for(id), expect_oop_map, &cl);
   // install blob
   _blobs[(int)id] = blob;
+  return blob != nullptr;
 }
 
-void Runtime1::initialize(BufferBlob* blob) {
+bool Runtime1::initialize(BufferBlob* blob) {
   // platform-dependent initialization
   initialize_pd();
   // generate stubs
   int limit = (int)C1StubId::NUM_STUBIDS;
-  for (int id = 0; id < limit; id++) generate_blob_for(blob, (C1StubId)id);
+  for (int id = 0; id < limit; id++) {
+    if (!generate_blob_for(blob, (C1StubId) id)) {
+      return false;
+    }
+  }
   // printing
 #ifndef PRODUCT
   if (PrintSimpleStubs) {
@@ -278,7 +293,7 @@ void Runtime1::initialize(BufferBlob* blob) {
   }
 #endif
   BarrierSetC1* bs = BarrierSet::barrier_set()->barrier_set_c1();
-  bs->generate_c1_runtime_stubs(blob);
+  return bs->generate_c1_runtime_stubs(blob);
 }
 
 CodeBlob* Runtime1::blob_for(C1StubId id) {
@@ -350,11 +365,10 @@ const char* Runtime1::name_for_address(address entry) {
   return pd_name_for_address(entry);
 }
 
-
-JRT_ENTRY(void, Runtime1::new_instance(JavaThread* current, Klass* klass))
+static void allocate_instance(JavaThread* current, Klass* klass, TRAPS) {
 #ifndef PRODUCT
   if (PrintC1Statistics) {
-    _new_instance_slowcase_cnt++;
+    Runtime1::_new_instance_slowcase_cnt++;
   }
 #endif
   assert(klass->is_klass(), "not a class");
@@ -368,6 +382,9 @@ JRT_ENTRY(void, Runtime1::new_instance(JavaThread* current, Klass* klass))
   current->set_vm_result(obj);
 JRT_END
 
+JRT_ENTRY(void, Runtime1::new_instance(JavaThread* current, Klass* klass))
+  allocate_instance(current, klass, CHECK);
+JRT_END
 
 JRT_ENTRY(void, Runtime1::new_type_array(JavaThread* current, Klass* klass, jint length))
 #ifndef PRODUCT
@@ -402,8 +419,37 @@ JRT_ENTRY(void, Runtime1::new_object_array(JavaThread* current, Klass* array_kla
   //       (This may have to change if this code changes!)
   assert(array_klass->is_klass(), "not a class");
   Handle holder(current, array_klass->klass_holder()); // keep the klass alive
-  Klass* elem_klass = ObjArrayKlass::cast(array_klass)->element_klass();
+  Klass* elem_klass = ArrayKlass::cast(array_klass)->element_klass();
   objArrayOop obj = oopFactory::new_objArray(elem_klass, length, CHECK);
+  current->set_vm_result(obj);
+  // This is pretty rare but this runtime patch is stressful to deoptimization
+  // if we deoptimize here so force a deopt to stress the path.
+  if (DeoptimizeALot) {
+    deopt_caller(current);
+  }
+JRT_END
+
+
+JRT_ENTRY(void, Runtime1::new_null_free_array(JavaThread* current, Klass* array_klass, jint length))
+  NOT_PRODUCT(_new_null_free_array_slowcase_cnt++;)
+  // TODO 8350865 This is dead code since 8325660 because null-free arrays can only be created via the factory methods that are not yet implemented in C1. Should probably be fixed by 8265122.
+
+  // Note: no handle for klass needed since they are not used
+  //       anymore after new_objArray() and no GC can happen before.
+  //       (This may have to change if this code changes!)
+  assert(array_klass->is_klass(), "not a class");
+  Handle holder(THREAD, array_klass->klass_holder()); // keep the klass alive
+  Klass* elem_klass = ArrayKlass::cast(array_klass)->element_klass();
+  assert(elem_klass->is_inline_klass(), "must be");
+  InlineKlass* vk = InlineKlass::cast(elem_klass);
+  // Logically creates elements, ensure klass init
+  elem_klass->initialize(CHECK);
+  arrayOop obj= nullptr;
+  if (UseArrayFlattening && vk->has_non_atomic_layout()) {
+    obj = oopFactory::new_flatArray(elem_klass, length, LayoutKind::NON_ATOMIC_FLAT, CHECK);
+  } else {
+    obj = oopFactory::new_null_free_objArray(elem_klass, length, CHECK);
+  }
   current->set_vm_result(obj);
   // This is pretty rare but this runtime patch is stressful to deoptimization
   // if we deoptimize here so force a deopt to stress the path.
@@ -426,6 +472,102 @@ JRT_ENTRY(void, Runtime1::new_multi_array(JavaThread* current, Klass* klass, int
   current->set_vm_result(obj);
 JRT_END
 
+
+static void profile_flat_array(JavaThread* current, bool load, bool null_free) {
+  ResourceMark rm(current);
+  vframeStream vfst(current, true);
+  assert(!vfst.at_end(), "Java frame must exist");
+  // Check if array access profiling is enabled
+  if (vfst.nm()->comp_level() != CompLevel_full_profile || !C1UpdateMethodData) {
+    return;
+  }
+  int bci = vfst.bci();
+  Method* method = vfst.method();
+  MethodData* md = method->method_data();
+  if (md != nullptr) {
+    // Lock to access ProfileData, and ensure lock is not broken by a safepoint
+    MutexLocker ml(md->extra_data_lock(), Mutex::_no_safepoint_check_flag);
+
+    ProfileData* data = md->bci_to_data(bci);
+    assert(data != nullptr, "incorrect profiling entry");
+    if (data->is_ArrayLoadData()) {
+      assert(load, "should be an array load");
+      ArrayLoadData* load_data = (ArrayLoadData*) data;
+      load_data->set_flat_array();
+      if (null_free) {
+        load_data->set_null_free_array();
+      }
+    } else {
+      assert(data->is_ArrayStoreData(), "");
+      assert(!load, "should be an array store");
+      ArrayStoreData* store_data = (ArrayStoreData*) data;
+      store_data->set_flat_array();
+      if (null_free) {
+        store_data->set_null_free_array();
+      }
+    }
+  }
+}
+
+JRT_ENTRY(void, Runtime1::load_flat_array(JavaThread* current, flatArrayOopDesc* array, int index))
+  assert(array->klass()->is_flatArray_klass(), "should not be called");
+  profile_flat_array(current, true, array->is_null_free_array());
+
+  NOT_PRODUCT(_load_flat_array_slowcase_cnt++;)
+  assert(array->length() > 0 && index < array->length(), "already checked");
+  flatArrayHandle vah(current, array);
+  oop obj = array->read_value_from_flat_array(index, CHECK);
+  current->set_vm_result(obj);
+JRT_END
+
+JRT_ENTRY(void, Runtime1::store_flat_array(JavaThread* current, flatArrayOopDesc* array, int index, oopDesc* value))
+  // TOOD 8350865 We can call here with a non-flat array because of LIR_Assembler::emit_opFlattenedArrayCheck
+  if (array->klass()->is_flatArray_klass()) {
+    profile_flat_array(current, false, array->is_null_free_array());
+  }
+
+  NOT_PRODUCT(_store_flat_array_slowcase_cnt++;)
+  if (value == nullptr && array->is_null_free_array()) {
+    SharedRuntime::throw_and_post_jvmti_exception(current, vmSymbols::java_lang_NullPointerException());
+  } else {
+    assert(array->klass()->is_flatArray_klass(), "should not be called");
+    array->write_value_to_flat_array(value, index, CHECK);
+  }
+JRT_END
+
+JRT_ENTRY(int, Runtime1::substitutability_check(JavaThread* current, oopDesc* left, oopDesc* right))
+  NOT_PRODUCT(_substitutability_check_slowcase_cnt++;)
+  JavaCallArguments args;
+  args.push_oop(Handle(THREAD, left));
+  args.push_oop(Handle(THREAD, right));
+  JavaValue result(T_BOOLEAN);
+  JavaCalls::call_static(&result,
+                         vmClasses::ValueObjectMethods_klass(),
+                         vmSymbols::isSubstitutable_name(),
+                         vmSymbols::object_object_boolean_signature(),
+                         &args, CHECK_0);
+  return result.get_jboolean() ? 1 : 0;
+JRT_END
+
+
+extern "C" void ps();
+
+void Runtime1::buffer_inline_args_impl(JavaThread* current, Method* m, bool allocate_receiver) {
+  JavaThread* THREAD = current;
+  methodHandle method(current, m); // We are inside the verified_entry or verified_inline_ro_entry of this method.
+  oop obj = SharedRuntime::allocate_inline_types_impl(current, method, allocate_receiver, CHECK);
+  current->set_vm_result(obj);
+}
+
+JRT_ENTRY(void, Runtime1::buffer_inline_args(JavaThread* current, Method* method))
+  NOT_PRODUCT(_buffer_inline_args_slowcase_cnt++;)
+  buffer_inline_args_impl(current, method, true);
+JRT_END
+
+JRT_ENTRY(void, Runtime1::buffer_inline_args_no_receiver(JavaThread* current, Method* method))
+  NOT_PRODUCT(_buffer_inline_args_no_receiver_slowcase_cnt++;)
+  buffer_inline_args_impl(current, method, false);
+JRT_END
 
 JRT_ENTRY(void, Runtime1::unimplemented_entry(JavaThread* current, C1StubId id))
   tty->print_cr("Runtime1::entry_for(%d) returned unimplemented entry point", (int)id);
@@ -750,6 +892,19 @@ JRT_ENTRY(void, Runtime1::throw_incompatible_class_change_error(JavaThread* curr
 JRT_END
 
 
+JRT_ENTRY(void, Runtime1::throw_illegal_monitor_state_exception(JavaThread* current))
+  NOT_PRODUCT(_throw_illegal_monitor_state_exception_count++;)
+  ResourceMark rm(current);
+  SharedRuntime::throw_and_post_jvmti_exception(current, vmSymbols::java_lang_IllegalMonitorStateException());
+JRT_END
+
+JRT_ENTRY(void, Runtime1::throw_identity_exception(JavaThread* current, oopDesc* object))
+  NOT_PRODUCT(_throw_identity_exception_count++;)
+  ResourceMark rm(current);
+  char* message = SharedRuntime::generate_identity_exception_message(current, object->klass());
+  SharedRuntime::throw_and_post_jvmti_exception(current, vmSymbols::java_lang_IdentityException(), message);
+JRT_END
+
 JRT_BLOCK_ENTRY(void, Runtime1::monitorenter(JavaThread* current, oopDesc* obj, BasicObjectLock* lock))
 #ifndef PRODUCT
   if (PrintC1Statistics) {
@@ -795,7 +950,7 @@ JRT_ENTRY(void, Runtime1::deoptimize(JavaThread* current, jint trap_request))
   Deoptimization::DeoptReason reason = Deoptimization::trap_request_reason(trap_request);
 
   if (action == Deoptimization::Action_make_not_entrant) {
-    if (nm->make_not_entrant()) {
+    if (nm->make_not_entrant("C1 deoptimize")) {
       if (reason == Deoptimization::Reason_tenured) {
         MethodData* trap_mdo = Deoptimization::get_method_data(current, method, true /*create_if_missing*/);
         if (trap_mdo != nullptr) {
@@ -955,6 +1110,8 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* current, C1StubId stub_id ))
   BasicType patch_field_type = T_ILLEGAL;
   bool deoptimize_for_volatile = false;
   bool deoptimize_for_atomic = false;
+  bool deoptimize_for_null_free = false;
+  bool deoptimize_for_flat = false;
   int patch_field_offset = -1;
   Klass* init_klass = nullptr; // klass needed by load_klass_patching code
   Klass* load_klass = nullptr; // klass needed by load_klass_patching code
@@ -997,6 +1154,16 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* current, C1StubId stub_id ))
 
     patch_field_type = result.field_type();
     deoptimize_for_atomic = (AlwaysAtomicAccesses && (patch_field_type == T_DOUBLE || patch_field_type == T_LONG));
+
+    // The field we are patching is null-free. Deoptimize and regenerate
+    // the compiled code if we patch a putfield/putstatic because it
+    // does not contain the required null check.
+    deoptimize_for_null_free = result.is_null_free_inline_type() && (field_access.is_putfield() || field_access.is_putstatic());
+
+    // The field we are patching is flat. Deoptimize and regenerate
+    // the compiled code which can't handle the layout of the flat
+    // field because it was unknown at compile time.
+    deoptimize_for_flat = result.is_flat();
 
   } else if (load_klass_or_mirror_patch_id) {
     Klass* k = nullptr;
@@ -1070,7 +1237,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* current, C1StubId stub_id ))
     ShouldNotReachHere();
   }
 
-  if (deoptimize_for_volatile || deoptimize_for_atomic) {
+  if (deoptimize_for_volatile || deoptimize_for_atomic || deoptimize_for_null_free || deoptimize_for_flat) {
     // At compile time we assumed the field wasn't volatile/atomic but after
     // loading it turns out it was volatile/atomic so we have to throw the
     // compiled code out and let it be regenerated.
@@ -1081,13 +1248,19 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* current, C1StubId stub_id ))
       if (deoptimize_for_atomic) {
         tty->print_cr("Deoptimizing for patching atomic field reference");
       }
+      if (deoptimize_for_null_free) {
+        tty->print_cr("Deoptimizing for patching null-free field reference");
+      }
+      if (deoptimize_for_flat) {
+        tty->print_cr("Deoptimizing for patching flat field reference");
+      }
     }
 
     // It's possible the nmethod was invalidated in the last
     // safepoint, but if it's still alive then make it not_entrant.
     nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
     if (nm != nullptr) {
-      nm->make_not_entrant();
+      nm->make_not_entrant("C1 code patch");
     }
 
     Deoptimization::deoptimize_frame(current, caller_frame.id());
@@ -1335,7 +1508,7 @@ void Runtime1::patch_code(JavaThread* current, C1StubId stub_id) {
     // Make sure the nmethod is invalidated, i.e. made not entrant.
     nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
     if (nm != nullptr) {
-      nm->make_not_entrant();
+      nm->make_not_entrant("C1 deoptimize for patching");
     }
   }
 
@@ -1463,7 +1636,7 @@ JRT_ENTRY(void, Runtime1::predicate_failed_trap(JavaThread* current))
 
   nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
   assert (nm != nullptr, "no more nmethod?");
-  nm->make_not_entrant();
+  nm->make_not_entrant("C1 predicate failed trap");
 
   methodHandle m(current, nm->method());
   MethodData* mdo = m->method_data();
@@ -1531,8 +1704,15 @@ void Runtime1::print_statistics() {
 
   tty->print_cr(" _new_type_array_slowcase_cnt:    %u", _new_type_array_slowcase_cnt);
   tty->print_cr(" _new_object_array_slowcase_cnt:  %u", _new_object_array_slowcase_cnt);
+  tty->print_cr(" _new_null_free_array_slowcase_cnt: %u", _new_null_free_array_slowcase_cnt);
   tty->print_cr(" _new_instance_slowcase_cnt:      %u", _new_instance_slowcase_cnt);
   tty->print_cr(" _new_multi_array_slowcase_cnt:   %u", _new_multi_array_slowcase_cnt);
+  tty->print_cr(" _load_flat_array_slowcase_cnt:   %u", _load_flat_array_slowcase_cnt);
+  tty->print_cr(" _store_flat_array_slowcase_cnt:  %u", _store_flat_array_slowcase_cnt);
+  tty->print_cr(" _substitutability_check_slowcase_cnt: %u", _substitutability_check_slowcase_cnt);
+  tty->print_cr(" _buffer_inline_args_slowcase_cnt:%u", _buffer_inline_args_slowcase_cnt);
+  tty->print_cr(" _buffer_inline_args_no_receiver_slowcase_cnt:%u", _buffer_inline_args_no_receiver_slowcase_cnt);
+
   tty->print_cr(" _monitorenter_slowcase_cnt:      %u", _monitorenter_slowcase_cnt);
   tty->print_cr(" _monitorexit_slowcase_cnt:       %u", _monitorexit_slowcase_cnt);
   tty->print_cr(" _patch_code_slowcase_cnt:        %u", _patch_code_slowcase_cnt);
@@ -1543,6 +1723,8 @@ void Runtime1::print_statistics() {
   tty->print_cr(" _throw_null_pointer_exception_count:           %u:", _throw_null_pointer_exception_count);
   tty->print_cr(" _throw_class_cast_exception_count:             %u:", _throw_class_cast_exception_count);
   tty->print_cr(" _throw_incompatible_class_change_error_count:  %u:", _throw_incompatible_class_change_error_count);
+  tty->print_cr(" _throw_illegal_monitor_state_exception_count:  %u:", _throw_illegal_monitor_state_exception_count);
+  tty->print_cr(" _throw_identity_exception_count:               %u:", _throw_identity_exception_count);
   tty->print_cr(" _throw_count:                                  %u:", _throw_count);
 
   SharedRuntime::print_ic_miss_histogram();

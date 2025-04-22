@@ -29,9 +29,13 @@
 #include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
+#include "oops/flatArrayOop.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/instanceOop.hpp"
 #include "oops/objArrayKlass.hpp"
+#include "oops/objArrayOop.inline.hpp"
 #include "oops/objArrayOop.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/typeArrayKlass.hpp"
@@ -112,6 +116,51 @@ objArrayOop oopFactory::new_objArray(Klass* klass, int length, TRAPS) {
     return ArrayKlass::cast(klass)->allocate_arrayArray(1, length, THREAD);
   } else {
     return InstanceKlass::cast(klass)->allocate_objArray(1, length, THREAD);
+  }
+}
+
+objArrayOop oopFactory::new_null_free_objArray(Klass* k, int length, TRAPS) {
+  InlineKlass* klass = InlineKlass::cast(k);
+  ObjArrayKlass* array_klass = klass->null_free_reference_array(CHECK_NULL);
+
+  assert(array_klass->is_objArray_klass(), "Must be");
+  assert(array_klass->is_null_free_array_klass(), "Must be");
+
+  objArrayOop oop = array_klass->allocate(length, CHECK_NULL);
+
+  assert(oop == nullptr || oop->is_objArray(), "Sanity");
+  assert(oop == nullptr || oop->klass()->is_null_free_array_klass(), "Sanity");
+
+  return oop;
+}
+
+flatArrayOop oopFactory::new_flatArray(Klass* k, int length, LayoutKind lk, TRAPS) {
+  InlineKlass* klass = InlineKlass::cast(k);
+  Klass* array_klass = klass->flat_array_klass(lk, CHECK_NULL);
+
+  assert(array_klass->is_flatArray_klass(), "Must be");
+
+  flatArrayOop oop = FlatArrayKlass::cast(array_klass)->allocate(length, lk, CHECK_NULL);
+  assert(oop == nullptr || oop->is_flatArray(), "sanity");
+  assert(oop == nullptr || oop->klass()->is_flatArray_klass(), "sanity");
+
+  return oop;
+}
+
+objArrayHandle oopFactory::copy_flatArray_to_objArray(flatArrayHandle array, TRAPS) {
+  int len = array->length();
+  FlatArrayKlass* vak = FlatArrayKlass::cast(array->klass());
+  objArrayOop oarray = new_objectArray(array->length(), CHECK_(objArrayHandle()));
+  objArrayHandle oarrayh(THREAD, oarray);
+  vak->copy_array(array(), 0, oarrayh(), 0, len, CHECK_(objArrayHandle()));
+  return oarrayh;
+}
+
+objArrayHandle  oopFactory::ensure_objArray(oop array, TRAPS) {
+  if (array != nullptr && array->is_flatArray()) {
+    return copy_flatArray_to_objArray(flatArrayHandle(THREAD, flatArrayOop(array)), THREAD);
+  } else {
+    return objArrayHandle(THREAD, objArrayOop(array));
   }
 }
 

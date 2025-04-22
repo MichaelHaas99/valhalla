@@ -145,13 +145,16 @@ bool frame::safe_for_sender(JavaThread *thread) {
       if (!thread->is_in_full_stack_checked((address)sender_sp)) {
         return false;
       }
-      sender_unextended_sp = sender_sp;
       // On Intel the return_address is always the word on the stack
       sender_pc = (address) *(sender_sp-1);
       // Note: frame::sender_sp_offset is only valid for compiled frame
-      saved_fp = (intptr_t*) *(sender_sp - frame::sender_sp_offset);
-    }
+      intptr_t** saved_fp_addr = (intptr_t**) (sender_sp - frame::sender_sp_offset);
+      saved_fp = *saved_fp_addr;
 
+      // Repair the sender sp if this is a method with scalarized inline type args
+      sender_sp = repair_sender_sp(sender_sp, saved_fp_addr);
+      sender_unextended_sp = sender_sp;
+    }
     if (Continuation::is_return_barrier_entry(sender_pc)) {
       // sender_pc might be invalid so check that the frame
       // actually belongs to a Continuation.
@@ -695,6 +698,21 @@ frame::frame(void* sp, void* fp, void* pc) {
 }
 
 #endif
+
+// Check for a method with scalarized inline type arguments that needs
+// a stack repair and return the repaired sender stack pointer.
+intptr_t* frame::repair_sender_sp(intptr_t* sender_sp, intptr_t** saved_fp_addr) const {
+  nmethod* nm = _cb->as_nmethod_or_null();
+  if (nm != nullptr && nm->needs_stack_repair()) {
+    // The stack increment resides just below the saved rbp on the stack
+    // and does not account for the return address.
+    intptr_t* real_frame_size_addr = (intptr_t*) (saved_fp_addr - 1);
+    int real_frame_size = ((*real_frame_size_addr) + wordSize) / wordSize;
+    assert(real_frame_size >= _cb->frame_size() && real_frame_size <= 1000000, "invalid frame size");
+    sender_sp = unextended_sp() + real_frame_size;
+  }
+  return sender_sp;
+}
 
 void JavaFrameAnchor::make_walkable() {
   // last frame set?

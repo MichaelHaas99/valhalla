@@ -26,9 +26,11 @@
  * @bug 8042251
  * @summary Testing InnerClasses_attribute of inner classes in local class.
  * @library /tools/lib /tools/javac/lib ../lib
+ * @enablePreview
  * @modules java.base/jdk.internal.classfile.impl
  *          jdk.compiler/com.sun.tools.javac.api
  *          jdk.compiler/com.sun.tools.javac.main
+ * @enablePreview
  * @build toolbox.ToolBox InMemoryFileManager TestResult TestBase
  * @build InnerClassesTestBase
  * @run main InnerClassesInLocalClassTest
@@ -52,7 +54,7 @@ public class InnerClassesInLocalClassTest extends InnerClassesTestBase {
         for (Modifier outerModifier : LOCAL_CLASS_MODIFIERS) {
             StringBuilder sb = new StringBuilder();
             sb.append(outerModifier.getString()).append(' ');
-            sb.append("class Local {");
+            sb.append("class Local { int f; "); // impose identity to make testing predictable.
             Map<String, Set<String>> class2Flags = new HashMap<>();
             for (int i = 0; i < LOCAL_CLASS_MODIFIERS.length; ++i) {
                 Modifier innerModifier = LOCAL_CLASS_MODIFIERS[i];
@@ -150,6 +152,7 @@ public class InnerClassesInLocalClassTest extends InnerClassesTestBase {
 
     private Set<String> getFlags(Modifier modifier) {
         HashSet<String> set = new HashSet<>();
+        set.add("ACC_IDENTITY");
         if (modifier != Modifier.EMPTY) {
             set.add("ACC_" + modifier.getString().toUpperCase());
         }

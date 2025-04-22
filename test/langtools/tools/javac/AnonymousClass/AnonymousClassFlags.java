@@ -47,12 +47,12 @@ public class AnonymousClassFlags {
     // ******* TEST CASES ********
 
     static Object o1 = new Object() {
-        { anonClasses.put(getClass().getName(), 0); }
+        { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
     };
 
     static void staticMethod() {
         Object o2 = new Object() {
-            { anonClasses.put(getClass().getName(), 0); }
+            { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
         };
     }
 
@@ -60,17 +60,17 @@ public class AnonymousClassFlags {
         staticMethod();
 
         Object o3 = new Object() {
-            { anonClasses.put(getClass().getName(), 0); }
+            { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
         };
     }
 
     Object o4 = new Object() {
-        { anonClasses.put(getClass().getName(), 0); }
+        { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
     };
 
     void instanceMethod() {
         Object o5 = new Object() {
-            { anonClasses.put(getClass().getName(), 0); }
+            { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
         };
     }
 
@@ -78,7 +78,7 @@ public class AnonymousClassFlags {
         instanceMethod();
 
         Object o6 = new Object() {
-            { anonClasses.put(getClass().getName(), 0); }
+            { anonClasses.put(getClass().getName(), ClassFile.ACC_IDENTITY); }
         };
     }
 
@@ -103,8 +103,8 @@ public class AnonymousClassFlags {
 
     static void assertClassFlags(ClassModel classFile, String name, int expected) {
         int mask = ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL | ClassFile.ACC_INTERFACE | ClassFile.ACC_ABSTRACT |
-                   ClassFile.ACC_SYNTHETIC | ClassFile.ACC_ANNOTATION | ClassFile.ACC_ENUM;
-        int classExpected = (expected & mask) | ClassFile.ACC_SUPER;
+                   ClassFile.ACC_SYNTHETIC | ClassFile.ACC_ANNOTATION | ClassFile.ACC_ENUM | ClassFile.ACC_IDENTITY;
+        int classExpected = (expected & mask);
         int classActual = classFile.flags().flagsMask();
         if (classActual != classExpected) {
             throw new AssertionError("Incorrect access_flags for class " + name +

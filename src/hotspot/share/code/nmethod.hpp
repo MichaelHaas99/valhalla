@@ -27,6 +27,7 @@
 
 #include "code/codeBlob.hpp"
 #include "code/pcDesc.hpp"
+#include "compiler/compilerDefinitions.hpp"
 #include "oops/metadata.hpp"
 #include "oops/method.hpp"
 
@@ -134,27 +135,27 @@ public:
 // nmethods (native methods) are the compiled code versions of Java methods.
 //
 // An nmethod contains:
-//  - header                 (the nmethod structure)
-//  [Relocation]
-//  - relocation information
-//  - constant part          (doubles, longs and floats used in nmethod)
-//  - oop table
-//  [Code]
-//  - code body
-//  - exception handler
-//  - stub code
-//  [Debugging information]
-//  - oop array
-//  - data array
-//  - pcs
-//  [Exception handler table]
-//  - handler entry point array
-//  [Implicit Null Pointer exception table]
-//  - implicit null table array
-//  [Speculations]
-//  - encoded speculations array
-//  [JVMCINMethodData]
-//  - meta data for JVMCI compiled nmethod
+//  - Header                 (the nmethod structure)
+//  - Constant part          (doubles, longs and floats used in nmethod)
+//  - Code part:
+//    - Code body
+//    - Exception handler
+//    - Stub code
+//    - OOP table
+//
+// As a CodeBlob, an nmethod references [mutable data] allocated on the C heap:
+//  - CodeBlob relocation data
+//  - Metainfo
+//  - JVMCI data
+//
+// An nmethod references [immutable data] allocated on C heap:
+//  - Dependency assertions data
+//  - Implicit null table array
+//  - Handler entry point array
+//  - Debugging information:
+//    - Scopes data array
+//    - Scopes pcs array
+//  - JVMCI speculations array
 
 #if INCLUDE_JVMCI
 class FailedSpeculation;
@@ -213,6 +214,10 @@ class nmethod : public CodeBlob {
   address  _osr_entry_point;       // entry point for on stack replacement
   uint16_t _entry_offset;          // entry point with class check
   uint16_t _verified_entry_offset; // entry point without class check
+  // TODO: can these be uint16_t, seem rely on -1 CodeOffset, can change later...
+  address _inline_entry_point;              // inline type entry point (unpack all inline type args) with class check
+  address _verified_inline_entry_point;     // inline type entry point (unpack all inline type args) without class check
+  address _verified_inline_ro_entry_point;  // inline type entry point (unpack receiver only) without class check
   int      _entry_bci;             // != InvocationEntryBci if this nmethod is an on-stack replacement method
   int      _immutable_data_size;
 
@@ -235,11 +240,9 @@ class nmethod : public CodeBlob {
   // Number of arguments passed on the stack
   uint16_t _num_stack_arg_slots;
 
-  // Offsets in mutable data section
-  // _oops_offset == _data_offset,  offset where embedded oop table begins (inside data)
-  uint16_t _metadata_offset; // embedded meta data table
+  uint16_t _oops_size;
 #if INCLUDE_JVMCI
-  uint16_t _jvmci_data_offset;
+  uint16_t _jvmci_data_size;
 #endif
 
   // Offset in immutable data section
@@ -305,13 +308,15 @@ class nmethod : public CodeBlob {
           int frame_size,
           ByteSize basic_lock_owner_sp_offset, /* synchronized natives only */
           ByteSize basic_lock_sp_offset,       /* synchronized natives only */
-          OopMapSet* oop_maps);
+          OopMapSet* oop_maps,
+          int mutable_data_size);
 
   // For normal JIT compiled code
   nmethod(Method* method,
           CompilerType type,
           int nmethod_size,
           int immutable_data_size,
+          int mutable_data_size,
           int compile_id,
           int entry_bci,
           address immutable_data,
@@ -526,22 +531,22 @@ public:
   address insts_begin           () const { return           code_begin()   ; }
   address insts_end             () const { return           header_begin() + _stub_offset             ; }
   address stub_begin            () const { return           header_begin() + _stub_offset             ; }
-  address stub_end              () const { return           data_begin()   ; }
+  address stub_end              () const { return           code_end()     ; }
   address exception_begin       () const { return           header_begin() + _exception_offset        ; }
   address deopt_handler_begin   () const { return           header_begin() + _deopt_handler_offset    ; }
   address deopt_mh_handler_begin() const { return           header_begin() + _deopt_mh_handler_offset ; }
   address unwind_handler_begin  () const { return _unwind_handler_offset != -1 ? (insts_end() - _unwind_handler_offset) : nullptr; }
+  oop*    oops_begin            () const { return (oop*)    data_begin(); }
+  oop*    oops_end              () const { return (oop*)    data_end(); }
 
   // mutable data
-  oop*    oops_begin            () const { return (oop*)        data_begin(); }
-  oop*    oops_end              () const { return (oop*)       (data_begin() + _metadata_offset)      ; }
-  Metadata** metadata_begin     () const { return (Metadata**) (data_begin() + _metadata_offset)      ; }
+  Metadata** metadata_begin     () const { return (Metadata**) (mutable_data_begin() + _relocation_size); }
 #if INCLUDE_JVMCI
-  Metadata** metadata_end       () const { return (Metadata**) (data_begin() + _jvmci_data_offset)    ; }
-  address jvmci_data_begin      () const { return               data_begin() + _jvmci_data_offset     ; }
-  address jvmci_data_end        () const { return               data_end(); }
+  Metadata** metadata_end       () const { return (Metadata**) (mutable_data_end() - _jvmci_data_size); }
+  address jvmci_data_begin      () const { return               mutable_data_end() - _jvmci_data_size; }
+  address jvmci_data_end        () const { return               mutable_data_end(); }
 #else
-  Metadata** metadata_end       () const { return (Metadata**)  data_end(); }
+  Metadata** metadata_end       () const { return (Metadata**)  mutable_data_end(); }
 #endif
 
   // immutable data
@@ -605,6 +610,9 @@ public:
   // entry points
   address entry_point() const          { return code_begin() + _entry_offset;          } // normal entry point
   address verified_entry_point() const { return code_begin() + _verified_entry_offset; } // if klass is correct
+  address inline_entry_point() const              { return _inline_entry_point; }             // inline type entry point (unpack all inline type args)
+  address verified_inline_entry_point() const     { return _verified_inline_entry_point; }    // inline type entry point (unpack all inline type args) without class check
+  address verified_inline_ro_entry_point() const  { return _verified_inline_ro_entry_point; } // inline type entry point (only unpack receiver) without class check
 
   enum : signed char { not_installed = -1, // in construction, only the owner doing the construction is
                                            // allowed to advance state
@@ -631,8 +639,8 @@ public:
   // alive.  It is used when an uncommon trap happens.  Returns true
   // if this thread changed the state of the nmethod or false if
   // another thread performed the transition.
-  bool  make_not_entrant();
-  bool  make_not_used()    { return make_not_entrant(); }
+  bool  make_not_entrant(const char* reason);
+  bool  make_not_used()    { return make_not_entrant("not used"); }
 
   bool  is_marked_for_deoptimization() const { return deoptimization_status() != not_marked; }
   bool  has_been_deoptimized() const { return deoptimization_status() == deoptimize_done; }
@@ -673,6 +681,16 @@ public:
 
   bool  has_wide_vectors() const                  { return _has_wide_vectors; }
   void  set_has_wide_vectors(bool z)              { _has_wide_vectors = z; }
+
+  bool  needs_stack_repair() const {
+    if (is_compiled_by_c1()) {
+      return method()->c1_needs_stack_repair();
+    } else if (is_compiled_by_c2()) {
+      return method()->c2_needs_stack_repair();
+    } else {
+      return false;
+    }
+  }
 
   bool  has_flushed_dependencies() const          { return _has_flushed_dependencies; }
   void  set_has_flushed_dependencies(bool z)      {
@@ -945,7 +963,7 @@ public:
   // Logging
   void log_identity(xmlStream* log) const;
   void log_new_nmethod() const;
-  void log_state_change() const;
+  void log_state_change(const char* reason) const;
 
   // Prints block-level comments, including nmethod specific block labels:
   void print_nmethod_labels(outputStream* stream, address block_begin, bool print_section_labels=true) const;

@@ -44,11 +44,15 @@ class ciField : public ArenaObj {
 private:
   ciFlags          _flags;
   ciInstanceKlass* _holder;
+  ciInstanceKlass* _original_holder; // For fields nested in flat fields
   ciSymbol*        _name;
   ciSymbol*        _signature;
   ciType*          _type;
   int              _offset;
   bool             _is_constant;
+  bool             _is_flat;
+  bool             _is_null_free;
+  int              _null_marker_offset;
   ciMethod*        _known_to_link_with_put;
   ciInstanceKlass* _known_to_link_with_get;
   ciConstant       _constant_value;
@@ -58,6 +62,7 @@ private:
 
   ciField(ciInstanceKlass* klass, int index, Bytecodes::Code bc);
   ciField(fieldDescriptor* fd);
+  ciField(ciField* field, ciInstanceKlass* holder, int offset, bool is_final);
 
   // shared constructor code
   void initialize_from(fieldDescriptor* fd);
@@ -169,6 +174,10 @@ public:
   bool is_stable               () const { return flags().is_stable(); }
   bool is_volatile             () const { return flags().is_volatile(); }
   bool is_transient            () const { return flags().is_transient(); }
+  bool is_flat                 () const { return _is_flat; }
+  bool is_null_free            () const { return _is_null_free; }
+  int null_marker_offset       () const { return _null_marker_offset; }
+
   // The field is modified outside of instance initializer methods
   // (or class/initializer methods if the field is static).
   bool has_initialized_final_update() const { return flags().has_initialized_final_update(); }

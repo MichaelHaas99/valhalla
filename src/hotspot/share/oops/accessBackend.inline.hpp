@@ -33,6 +33,7 @@
 #include "oops/oopsHierarchy.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/orderAccess.hpp"
+#include "oops/inlineKlass.hpp"
 
 #include <type_traits>
 
@@ -124,12 +125,12 @@ inline T RawAccessBarrier<decorators>::oop_atomic_xchg_at(oop base, ptrdiff_t of
 
 template <DecoratorSet decorators>
 template <typename T>
-inline bool RawAccessBarrier<decorators>::oop_arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+inline void RawAccessBarrier<decorators>::oop_arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                                         arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                                         size_t length) {
-  return arraycopy(src_obj, src_offset_in_bytes, src_raw,
-                   dst_obj, dst_offset_in_bytes, dst_raw,
-                   length);
+  arraycopy(src_obj, src_offset_in_bytes, src_raw,
+            dst_obj, dst_offset_in_bytes, dst_raw,
+            length);
 }
 
 template <DecoratorSet decorators>
@@ -302,13 +303,12 @@ template<> struct RawAccessBarrierArrayCopy::IsHeapWordSized<void>: public std::
 
 template <DecoratorSet decorators>
 template <typename T>
-inline bool RawAccessBarrier<decorators>::arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+inline void RawAccessBarrier<decorators>::arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                                     arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                                     size_t length) {
   RawAccessBarrierArrayCopy::arraycopy<decorators>(src_obj, src_offset_in_bytes, src_raw,
                                                    dst_obj, dst_offset_in_bytes, dst_raw,
                                                    length);
-  return true;
 }
 
 template <DecoratorSet decorators>
@@ -331,4 +331,9 @@ inline void RawAccessBarrier<decorators>::clone(oop src, oop dst, size_t size) {
   dst->init_mark();
 }
 
+template <DecoratorSet decorators>
+inline void RawAccessBarrier<decorators>::value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+  assert(is_aligned(src, md->layout_alignment(lk)) && is_aligned(dst, md->layout_alignment(lk)), "Unaligned value_copy");
+  AccessInternal::value_copy_internal(src, dst, static_cast<size_t>(md->layout_size_in_bytes(lk)));
+}
 #endif // SHARE_OOPS_ACCESSBACKEND_INLINE_HPP

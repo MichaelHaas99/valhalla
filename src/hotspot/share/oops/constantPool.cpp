@@ -53,6 +53,7 @@
 #include "oops/constantPool.inline.hpp"
 #include "oops/cpCache.inline.hpp"
 #include "oops/fieldStreams.inline.hpp"
+#include "oops/flatArrayKlass.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/klass.inline.hpp"
 #include "oops/objArrayKlass.hpp"
@@ -262,7 +263,7 @@ void ConstantPool::initialize_unresolved_klasses(ClassLoaderData* loader_data, T
     case JVM_CONSTANT_Class:
     case JVM_CONSTANT_UnresolvedClass:
     case JVM_CONSTANT_UnresolvedClassInError:
-      // All of these should have been reverted back to ClassIndex before calling
+      // All of these should have been reverted back to Unresolved before calling
       // this function.
       ShouldNotReachHere();
 #endif
@@ -455,7 +456,7 @@ void ConstantPool::restore_unshareable_info(TRAPS) {
     }
   }
 
-  if (CDSConfig::is_dumping_final_static_archive() && resolved_references() != nullptr) {
+  if (CDSConfig::is_dumping_final_static_archive() && CDSConfig::is_dumping_heap() && resolved_references() != nullptr) {
     objArrayOop scratch_references = oopFactory::new_objArray(vmClasses::Object_klass(), resolved_references()->length(), CHECK);
     HeapShared::add_scratch_resolved_references(this, scratch_references);
   }
@@ -639,6 +640,12 @@ void ConstantPool::trace_class_resolution(const constantPoolHandle& this_cp, Kla
   }
 }
 
+void check_is_inline_type(Klass* k, TRAPS) {
+  if (!k->is_inline_klass()) {
+    THROW(vmSymbols::java_lang_IncompatibleClassChangeError());
+  }
+}
+
 Klass* ConstantPool::klass_at_impl(const constantPoolHandle& this_cp, int cp_index,
                                    TRAPS) {
   JavaThread* javaThread = THREAD;
@@ -677,6 +684,7 @@ Klass* ConstantPool::klass_at_impl(const constantPoolHandle& this_cp, int cp_ind
   HandleMark hm(THREAD);
   Handle mirror_handle;
   Symbol* name = this_cp->symbol_at(name_index);
+  bool inline_type_signature = false;
   Handle loader (THREAD, this_cp->pool_holder()->class_loader());
 
   Klass* k;
@@ -685,12 +693,31 @@ Klass* ConstantPool::klass_at_impl(const constantPoolHandle& this_cp, int cp_ind
     JvmtiHideSingleStepping jhss(javaThread);
     k = SystemDictionary::resolve_or_fail(name, loader, true, THREAD);
   } //  JvmtiHideSingleStepping jhss(javaThread);
+  if (inline_type_signature) {
+    name->decrement_refcount();
+  }
 
   if (!HAS_PENDING_EXCEPTION) {
     // preserve the resolved klass from unloading
     mirror_handle = Handle(THREAD, k->java_mirror());
     // Do access check for klasses
     verify_constant_pool_resolve(this_cp, k, THREAD);
+  }
+
+  if (!HAS_PENDING_EXCEPTION && inline_type_signature) {
+    check_is_inline_type(k, THREAD);
+  }
+
+  if (!HAS_PENDING_EXCEPTION) {
+    Klass* bottom_klass = nullptr;
+    if (k->is_objArray_klass()) {
+      bottom_klass = ObjArrayKlass::cast(k)->bottom_klass();
+      assert(bottom_klass != nullptr, "Should be set");
+      assert(bottom_klass->is_instance_klass() || bottom_klass->is_typeArray_klass(), "Sanity check");
+    } else if (k->is_flatArray_klass()) {
+      bottom_klass = FlatArrayKlass::cast(k)->element_klass();
+      assert(bottom_klass != nullptr, "Should be set");
+    }
   }
 
   // Failed to resolve class. We must record the errors so that subsequent attempts

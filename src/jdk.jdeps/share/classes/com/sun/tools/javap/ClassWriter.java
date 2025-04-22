@@ -38,6 +38,8 @@ import java.lang.constant.ClassDesc;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+
+import com.sun.tools.javac.code.Source;
 import java.lang.classfile.AccessFlags;
 import java.lang.classfile.Attributes;
 import java.lang.classfile.ClassModel;
@@ -151,7 +153,7 @@ public class ClassWriter extends BasicWriter {
             indent(-1);
         }
 
-        writeModifiers(getClassModifiers(cm.flags()));
+        writeModifiers(getClassModifiers(cm.flags(), classModel.majorVersion(), classModel.minorVersion()));
 
         if ((classModel.flags().flagsMask() & ACC_MODULE) != 0) {
             var attr = classModel.findAttribute(Attributes.module());
@@ -795,6 +797,20 @@ public class ClassWriter extends BasicWriter {
             set = flagSet;
         }
         return getModifiers(set);
+    }
+
+    private Set<String> getClassModifiers(AccessFlags flags, int majorVersion, int minorVersion) {
+        boolean previewClassFile = minorVersion == ClassFile.PREVIEW_MINOR_VERSION;
+        Set<AccessFlag> flagSet = flagsReportUnknown(flags);
+        if (flagSet.contains(AccessFlag.INTERFACE)) {
+            flagSet = EnumSet.copyOf(flagSet);
+            flagSet.remove(AccessFlag.ABSTRACT);
+        } else if (Source.isSupported(Source.Feature.VALUE_CLASSES, majorVersion) && previewClassFile) {
+            Set<String> classModifers = getModifiers(flagSet);
+            classModifers.add("value");
+            return classModifers;
+        }
+        return getModifiers(flagSet);
     }
 
     private static Set<String> getModifiers(Set<java.lang.reflect.AccessFlag> flags) {

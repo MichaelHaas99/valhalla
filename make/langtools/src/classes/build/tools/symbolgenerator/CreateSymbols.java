@@ -347,12 +347,17 @@ public class CreateSymbols {
             "Ljdk/internal/ValueBased;";
     private static final String VALUE_BASED_ANNOTATION_INTERNAL =
             "Ljdk/internal/ValueBased+Annotation;";
+    private static final String MIGRATED_VALUE_CLASS_ANNOTATION =
+            "Ljdk/internal/MigratedValueClass;";
+    private static final String MIGRATED_VALUE_CLASS_ANNOTATION_INTERNAL =
+            "Ljdk/internal/MigratedValueClass+Annotation;";
     public static final Set<String> HARDCODED_ANNOTATIONS = new HashSet<>(
             List.of("Ljdk/Profile+Annotation;",
                     "Lsun/Proprietary+Annotation;",
                     PREVIEW_FEATURE_ANNOTATION_OLD,
                     PREVIEW_FEATURE_ANNOTATION_NEW,
                     VALUE_BASED_ANNOTATION,
+                    MIGRATED_VALUE_CLASS_ANNOTATION,
                     RESTRICTED_ANNOTATION));
 
     private void stripNonExistentAnnotations(LoadDescriptions data) {
@@ -1249,6 +1254,12 @@ public class CreateSymbols {
             //the non-public ValueBased annotation will not be available in ct.sym,
             //replace with purely synthetic javac-internal annotation:
             annotationType = VALUE_BASED_ANNOTATION_INTERNAL;
+        }
+
+        if (MIGRATED_VALUE_CLASS_ANNOTATION.equals(annotationType)) {
+            //the non-public MigratedValueClass annotation will not be available in ct.sym,
+            //replace with purely synthetic javac-internal annotation:
+            annotationType = MIGRATED_VALUE_CLASS_ANNOTATION_INTERNAL;
         }
 
         if (RESTRICTED_ANNOTATION.equals(annotationType)) {
@@ -2589,6 +2600,7 @@ public class CreateSymbols {
                 }
                 ((FieldDescription) feature).constantValue = value;
                 break;
+            case "Preload":
             case "SourceFile":
                 //ignore, not needed
                 break;

@@ -29,6 +29,7 @@
 #include "memory/allocation.hpp"
 #include "metaprogramming/enableIf.hpp"
 #include "oops/accessDecorators.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/oopsHierarchy.hpp"
 #include "runtime/globals.hpp"
 #include "utilities/debug.hpp"
@@ -45,6 +46,14 @@ struct HeapOopType: AllStatic {
   using type = std::conditional_t<needs_oop_compress, narrowOop, oop>;
 };
 
+// This meta-function returns either oop or narrowOop depending on whether
+// a back-end needs to consider compressed oops types or not.
+template <DecoratorSet decorators>
+struct ValueOopType: AllStatic {
+  static const bool needs_oop_compress = HasDecorator<decorators, INTERNAL_RT_USE_COMPRESSED_OOPS>::value;
+  using type = std::conditional_t<needs_oop_compress, narrowOop, oop>;
+};
+
 namespace AccessInternal {
   enum BarrierType {
     BARRIER_STORE,
@@ -56,7 +65,8 @@ namespace AccessInternal {
     BARRIER_ATOMIC_XCHG,
     BARRIER_ATOMIC_XCHG_AT,
     BARRIER_ARRAYCOPY,
-    BARRIER_CLONE
+    BARRIER_CLONE,
+    BARRIER_VALUE_COPY
   };
 
   template <DecoratorSet decorators, typename T>
@@ -93,15 +103,16 @@ namespace AccessInternal {
     typedef T (*atomic_cmpxchg_func_t)(void* addr, T compare_value, T new_value);
     typedef T (*atomic_xchg_func_t)(void* addr, T new_value);
 
-    typedef bool (*arraycopy_func_t)(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+    typedef void (*arraycopy_func_t)(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                      arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                      size_t length);
     typedef void (*clone_func_t)(oop src, oop dst, size_t size);
+    typedef void (*value_copy_func_t)(void* src, void* dst, InlineKlass* md, LayoutKind lk);
   };
 
   template <DecoratorSet decorators>
   struct AccessFunctionTypes<decorators, void> {
-    typedef bool (*arraycopy_func_t)(arrayOop src_obj, size_t src_offset_in_bytes, void* src,
+    typedef void (*arraycopy_func_t)(arrayOop src_obj, size_t src_offset_in_bytes, void* src,
                                      arrayOop dst_obj, size_t dst_offset_in_bytes, void* dst,
                                      size_t length);
   };
@@ -123,6 +134,7 @@ namespace AccessInternal {
   ACCESS_GENERATE_ACCESS_FUNCTION(BARRIER_ATOMIC_XCHG_AT, atomic_xchg_at_func_t);
   ACCESS_GENERATE_ACCESS_FUNCTION(BARRIER_ARRAYCOPY, arraycopy_func_t);
   ACCESS_GENERATE_ACCESS_FUNCTION(BARRIER_CLONE, clone_func_t);
+  ACCESS_GENERATE_ACCESS_FUNCTION(BARRIER_VALUE_COPY, value_copy_func_t);
 #undef ACCESS_GENERATE_ACCESS_FUNCTION
 
   template <DecoratorSet decorators, typename T, BarrierType barrier_type>
@@ -148,6 +160,8 @@ namespace AccessInternal {
   void arraycopy_arrayof_conjoint(T* src, T* dst, size_t length);
   template<typename T>
   void arraycopy_conjoint_atomic(T* src, T* dst, size_t length);
+
+  void value_copy_internal(void* src, void* dst, size_t length);
 }
 
 // This mask specifies what decorators are relevant for raw accesses. When passing
@@ -287,7 +301,7 @@ public:
   }
 
   template <typename T>
-  static bool arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+  static void arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                         arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                         size_t length);
 
@@ -332,11 +346,13 @@ public:
   }
 
   template <typename T>
-  static bool oop_arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+  static void oop_arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                             arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                             size_t length);
 
   static void clone(oop src, oop dst, size_t size);
+  static void value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk);
+
 };
 
 namespace AccessInternal {
@@ -506,11 +522,11 @@ namespace AccessInternal {
     typedef typename AccessFunction<decorators, T, BARRIER_ARRAYCOPY>::type func_t;
     static func_t _arraycopy_func;
 
-    static bool arraycopy_init(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+    static void arraycopy_init(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                size_t length);
 
-    static inline bool arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+    static inline void arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                  arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                  size_t length) {
       assert_access_thread_state();
@@ -530,6 +546,18 @@ namespace AccessInternal {
     static inline void clone(oop src, oop dst, size_t size) {
       assert_access_thread_state();
       _clone_func(src, dst, size);
+    }
+  };
+
+  template <DecoratorSet decorators, typename T>
+  struct RuntimeDispatch<decorators, T, BARRIER_VALUE_COPY>: AllStatic {
+    typedef typename AccessFunction<decorators, T, BARRIER_VALUE_COPY>::type func_t;
+    static func_t _value_copy_func;
+
+    static void value_copy_init(void* src, void* dst, InlineKlass* md, LayoutKind lk);
+
+    static inline void value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+      _value_copy_func(src, dst, md, lk);
     }
   };
 
@@ -573,6 +601,10 @@ namespace AccessInternal {
   template <DecoratorSet decorators, typename T>
   typename AccessFunction<decorators, T, BARRIER_CLONE>::type
   RuntimeDispatch<decorators, T, BARRIER_CLONE>::_clone_func = &clone_init;
+
+  template <DecoratorSet decorators, typename T>
+  typename AccessFunction<decorators, T, BARRIER_VALUE_COPY>::type
+  RuntimeDispatch<decorators, T, BARRIER_VALUE_COPY>::_value_copy_func = &value_copy_init;
 
   // Step 3: Pre-runtime dispatching.
   // The PreRuntimeDispatch class is responsible for filtering the barrier strength
@@ -821,56 +853,56 @@ namespace AccessInternal {
 
     template <DecoratorSet decorators, typename T>
     inline static typename EnableIf<
-      HasDecorator<decorators, AS_RAW>::value && CanHardwireRaw<decorators>::value, bool>::type
+      HasDecorator<decorators, AS_RAW>::value && CanHardwireRaw<decorators>::value, void>::type
     arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
               arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
               size_t length) {
       typedef RawAccessBarrier<decorators & RAW_DECORATOR_MASK> Raw;
       if (HasDecorator<decorators, INTERNAL_VALUE_IS_OOP>::value) {
-        return Raw::oop_arraycopy(src_obj, src_offset_in_bytes, src_raw,
-                                  dst_obj, dst_offset_in_bytes, dst_raw,
-                                  length);
+        Raw::oop_arraycopy(src_obj, src_offset_in_bytes, src_raw,
+                           dst_obj, dst_offset_in_bytes, dst_raw,
+                           length);
       } else {
-        return Raw::arraycopy(src_obj, src_offset_in_bytes, src_raw,
-                              dst_obj, dst_offset_in_bytes, dst_raw,
-                              length);
+        Raw::arraycopy(src_obj, src_offset_in_bytes, src_raw,
+                       dst_obj, dst_offset_in_bytes, dst_raw,
+                       length);
       }
     }
 
     template <DecoratorSet decorators, typename T>
     inline static typename EnableIf<
-      HasDecorator<decorators, AS_RAW>::value && !CanHardwireRaw<decorators>::value, bool>::type
+      HasDecorator<decorators, AS_RAW>::value && !CanHardwireRaw<decorators>::value, void>::type
     arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
               arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
               size_t length) {
       if (UseCompressedOops) {
         const DecoratorSet expanded_decorators = decorators | convert_compressed_oops;
-        return PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                                  dst_obj, dst_offset_in_bytes, dst_raw,
-                                                                  length);
+        PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                                           dst_obj, dst_offset_in_bytes, dst_raw,
+                                                           length);
       } else {
         const DecoratorSet expanded_decorators = decorators & ~convert_compressed_oops;
-        return PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                                  dst_obj, dst_offset_in_bytes, dst_raw,
-                                                                  length);
+        PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                                           dst_obj, dst_offset_in_bytes, dst_raw,
+                                                           length);
       }
     }
 
     template <DecoratorSet decorators, typename T>
     inline static typename EnableIf<
-      !HasDecorator<decorators, AS_RAW>::value, bool>::type
+      !HasDecorator<decorators, AS_RAW>::value, void>::type
     arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
               arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
               size_t length) {
       if (is_hardwired_primitive<decorators>()) {
         const DecoratorSet expanded_decorators = decorators | AS_RAW;
-        return PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                                  dst_obj, dst_offset_in_bytes, dst_raw,
-                                                                  length);
+        PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                                           dst_obj, dst_offset_in_bytes, dst_raw,
+                                                           length);
       } else {
-        return RuntimeDispatch<decorators, T, BARRIER_ARRAYCOPY>::arraycopy(src_obj, src_offset_in_bytes, src_raw,
-                                                                            dst_obj, dst_offset_in_bytes, dst_raw,
-                                                                            length);
+        RuntimeDispatch<decorators, T, BARRIER_ARRAYCOPY>::arraycopy(src_obj, src_offset_in_bytes, src_raw,
+                                                                     dst_obj, dst_offset_in_bytes, dst_raw,
+                                                                     length);
       }
     }
 
@@ -887,6 +919,22 @@ namespace AccessInternal {
       !HasDecorator<decorators, AS_RAW>::value>::type
     clone(oop src, oop dst, size_t size) {
       RuntimeDispatch<decorators, oop, BARRIER_CLONE>::clone(src, dst, size);
+    }
+
+    template <DecoratorSet decorators>
+    inline static typename EnableIf<
+      HasDecorator<decorators, AS_RAW>::value>::type
+    value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+      typedef RawAccessBarrier<decorators & RAW_DECORATOR_MASK> Raw;
+      Raw::value_copy(src, dst, md, lk);
+    }
+
+    template <DecoratorSet decorators>
+    inline static typename EnableIf<
+      !HasDecorator<decorators, AS_RAW>::value>::type
+      value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+      const DecoratorSet expanded_decorators = decorators;
+      RuntimeDispatch<expanded_decorators, void*, BARRIER_VALUE_COPY>::value_copy(src, dst, md, lk);
     }
   };
 
@@ -1002,33 +1050,33 @@ namespace AccessInternal {
   }
 
   template <DecoratorSet decorators, typename T>
-  inline bool arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
+  inline void arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, T* src_raw,
                                      arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                                      size_t length) {
-    return PreRuntimeDispatch::arraycopy<decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                     dst_obj, dst_offset_in_bytes, dst_raw,
-                                                     length);
+    PreRuntimeDispatch::arraycopy<decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                              dst_obj, dst_offset_in_bytes, dst_raw,
+                                              length);
   }
 
   template <DecoratorSet decorators>
-  inline bool arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, HeapWord* src_raw,
+  inline void arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, HeapWord* src_raw,
                                      arrayOop dst_obj, size_t dst_offset_in_bytes, HeapWord* dst_raw,
                                      size_t length) {
     const DecoratorSet expanded_decorators = decorators | INTERNAL_CONVERT_COMPRESSED_OOP;
-    return PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                              dst_obj, dst_offset_in_bytes, dst_raw,
-                                                              length);
+    PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                                       dst_obj, dst_offset_in_bytes, dst_raw,
+                                                       length);
   }
 
   template <DecoratorSet decorators>
-  inline bool arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, narrowOop* src_raw,
+  inline void arraycopy_reduce_types(arrayOop src_obj, size_t src_offset_in_bytes, narrowOop* src_raw,
                                      arrayOop dst_obj, size_t dst_offset_in_bytes, narrowOop* dst_raw,
                                      size_t length) {
     const DecoratorSet expanded_decorators = decorators | INTERNAL_CONVERT_COMPRESSED_OOP |
                                              INTERNAL_RT_USE_COMPRESSED_OOPS;
-    return PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
-                                                              dst_obj, dst_offset_in_bytes, dst_raw,
-                                                              length);
+    PreRuntimeDispatch::arraycopy<expanded_decorators>(src_obj, src_offset_in_bytes, src_raw,
+                                                       dst_obj, dst_offset_in_bytes, dst_raw,
+                                                       length);
   }
 
   // Step 1: Set default decorators. This step remembers if a type was volatile
@@ -1161,7 +1209,7 @@ namespace AccessInternal {
   }
 
   template <DecoratorSet decorators, typename T>
-  inline bool arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, const T* src_raw,
+  inline void arraycopy(arrayOop src_obj, size_t src_offset_in_bytes, const T* src_raw,
                         arrayOop dst_obj, size_t dst_offset_in_bytes, T* dst_raw,
                         size_t length) {
     STATIC_ASSERT((HasDecorator<decorators, INTERNAL_VALUE_IS_OOP>::value ||
@@ -1169,15 +1217,21 @@ namespace AccessInternal {
                     std::is_floating_point<T>::value)); // arraycopy allows type erased void elements
     using DecayedT = std::decay_t<T>;
     const DecoratorSet expanded_decorators = DecoratorFixup<decorators | IS_ARRAY | IN_HEAP>::value;
-    return arraycopy_reduce_types<expanded_decorators>(src_obj, src_offset_in_bytes, const_cast<DecayedT*>(src_raw),
-                                                       dst_obj, dst_offset_in_bytes, const_cast<DecayedT*>(dst_raw),
-                                                       length);
+    arraycopy_reduce_types<expanded_decorators>(src_obj, src_offset_in_bytes, const_cast<DecayedT*>(src_raw),
+                                                dst_obj, dst_offset_in_bytes, const_cast<DecayedT*>(dst_raw),
+                                                length);
   }
 
   template <DecoratorSet decorators>
   inline void clone(oop src, oop dst, size_t size) {
     const DecoratorSet expanded_decorators = DecoratorFixup<decorators>::value;
     PreRuntimeDispatch::clone<expanded_decorators>(src, dst, size);
+  }
+
+  template <DecoratorSet decorators>
+  inline void value_copy(void* src, void* dst, InlineKlass* md, LayoutKind lk) {
+    const DecoratorSet expanded_decorators = DecoratorFixup<decorators>::value;
+    PreRuntimeDispatch::value_copy<expanded_decorators>(src, dst, md, lk);
   }
 
   // Infer the type that should be returned from an Access::oop_load.

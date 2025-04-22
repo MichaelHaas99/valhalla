@@ -92,6 +92,8 @@ import java.time.temporal.ValueRange;
 import java.time.zone.ZoneRules;
 import java.util.Objects;
 
+import jdk.internal.util.DateTimeHelper;
+
 /**
  * A time with an offset from UTC/Greenwich in the ISO-8601 calendar system,
  * such as {@code 10:15:30+01:00}.
@@ -104,11 +106,18 @@ import java.util.Objects;
  * in an {@code OffsetTime}.
  * <p>
  * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
- * class; programmers should treat instances that are
- * {@linkplain #equals(Object) equal} as interchangeable and should not
- * use instances for synchronization, or unpredictable behavior may
- * occur. For example, in a future release, synchronization may fail.
- * The {@code equals} method should be used for comparisons.
+ * class; programmers should treat instances that are {@linkplain #equals(Object) equal}
+ * as interchangeable and should not use instances for synchronization, mutexes, or
+ * with {@linkplain java.lang.ref.Reference object references}.
+ *
+ * <div class="preview-block">
+ *      <div class="preview-comment">
+ *          When preview features are enabled, {@code OffsetTime} is a {@linkplain Class#isValue value class}.
+ *          Use of value class instances for synchronization, mutexes, or with
+ *          {@linkplain java.lang.ref.Reference object references} result in
+ *          {@link IdentityException}.
+ *      </div>
+ * </div>
  *
  * @implSpec
  * This class is immutable and thread-safe.
@@ -116,6 +125,7 @@ import java.util.Objects;
  * @since 1.8
  */
 @jdk.internal.ValueBased
+@jdk.internal.MigratedValueClass
 public final class OffsetTime
         implements Temporal, TemporalAdjuster, Comparable<OffsetTime>, Serializable {
 
@@ -1400,7 +1410,7 @@ public final class OffsetTime
     public String toString() {
         var offsetStr = offset.toString();
         var buf = new StringBuilder(18 + offsetStr.length());
-        time.formatTo(buf);
+        DateTimeHelper.formatTo(buf, time);
         return buf.append(offsetStr).toString();
     }
 

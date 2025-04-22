@@ -53,6 +53,7 @@ import java.lang.classfile.TypeKind;
 
 import jdk.internal.constant.ConstantUtils;
 import jdk.internal.loader.ClassLoaders;
+import jdk.internal.misc.PreviewFeatures;
 import jdk.internal.module.Modules;
 import jdk.internal.util.ClassFileDumper;
 
@@ -345,7 +346,7 @@ public final class MethodHandleProxies {
                         ClassLoaders.platformClassLoader() : loader)))
                         .build(proxyDesc, clb -> {
             clb.withSuperclass(CD_Object)
-               .withFlags(ACC_FINAL | ACC_SYNTHETIC)
+               .withFlags((PreviewFeatures.isEnabled() ? ACC_IDENTITY  : 0) | ACC_FINAL | ACC_SYNTHETIC)
                .withInterfaceSymbols(ifaceDesc)
                // static and instance fields
                .withField(TYPE_NAME, CD_Class, ACC_PRIVATE | ACC_STATIC | ACC_FINAL)

@@ -66,4 +66,8 @@ inline BasicType fieldDescriptor::field_type() const {
   return Signature::basic_type(signature());
 }
 
+inline bool fieldDescriptor::is_flat()  const  { return field().field_flags().is_flat(); }
+inline bool fieldDescriptor::is_null_free_inline_type() const { return field().field_flags().is_null_free_inline_type(); }
+inline bool fieldDescriptor::has_null_marker() const { return field().field_flags().has_null_marker(); }
+
 #endif // SHARE_RUNTIME_FIELDDESCRIPTOR_INLINE_HPP

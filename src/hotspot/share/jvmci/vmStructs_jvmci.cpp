@@ -210,7 +210,7 @@
   nonstatic_field(InstanceKlass,               _constants,                                    ConstantPool*)                         \
   volatile_nonstatic_field(InstanceKlass,      _init_state,                                   InstanceKlass::ClassState)             \
   volatile_nonstatic_field(InstanceKlass,      _init_thread,                                  JavaThread*)                           \
-  nonstatic_field(InstanceKlass,               _misc_flags._flags,                            u2)                                    \
+  nonstatic_field(InstanceKlass,               _misc_flags._flags,                            u4)                                    \
   nonstatic_field(InstanceKlass,               _annotations,                                  Annotations*)                          \
                                                                                                                                      \
   volatile_nonstatic_field(JavaFrameAnchor,    _last_Java_sp,                                 intptr_t*)                             \
@@ -689,6 +689,9 @@
   declare_constant(DataLayout::virtual_call_type_data_tag)                \
   declare_constant(DataLayout::parameters_type_data_tag)                  \
   declare_constant(DataLayout::speculative_trap_data_tag)                 \
+  declare_constant(DataLayout::array_store_data_tag)                      \
+  declare_constant(DataLayout::array_load_data_tag)                       \
+  declare_constant(DataLayout::acmp_data_tag)                             \
                                                                           \
   declare_constant(Deoptimization::Unpack_deopt)                          \
   declare_constant(Deoptimization::Unpack_exception)                      \

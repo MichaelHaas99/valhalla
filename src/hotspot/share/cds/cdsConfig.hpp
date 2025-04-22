@@ -42,6 +42,9 @@ class CDSConfig : public AllStatic {
   static bool _is_using_full_module_graph;
   static bool _has_aot_linked_classes;
 
+  static bool _module_patching_disables_cds;
+  static bool _java_base_module_patching_disables_cds;
+
   static char* _default_archive_path;
   static char* _static_archive_path;
   static char* _dynamic_archive_path;
@@ -68,9 +71,11 @@ class CDSConfig : public AllStatic {
 public:
   // Used by jdk.internal.misc.CDS.getCDSConfigStatus();
   static const int IS_DUMPING_ARCHIVE              = 1 << 0;
-  static const int IS_DUMPING_STATIC_ARCHIVE       = 1 << 1;
-  static const int IS_LOGGING_LAMBDA_FORM_INVOKERS = 1 << 2;
-  static const int IS_USING_ARCHIVE                = 1 << 3;
+  static const int IS_DUMPING_METHOD_HANDLES       = 1 << 1;
+  static const int IS_DUMPING_STATIC_ARCHIVE       = 1 << 2;
+  static const int IS_LOGGING_LAMBDA_FORM_INVOKERS = 1 << 3;
+  static const int IS_USING_ARCHIVE                = 1 << 4;
+
   static int get_status() NOT_CDS_RETURN_(0);
 
   // Initialization and command-line checking
@@ -82,7 +87,12 @@ public:
   static void check_incompatible_property(const char* key, const char* value) NOT_CDS_RETURN;
   static void check_unsupported_dumping_module_options() NOT_CDS_RETURN;
   static bool has_unsupported_runtime_module_options() NOT_CDS_RETURN_(false);
-  static bool check_vm_args_consistency(bool patch_mod_javabase, bool mode_flag_cmd_line) NOT_CDS_RETURN_(true);
+  static bool check_vm_args_consistency(bool mode_flag_cmd_line) NOT_CDS_RETURN_(true);
+
+  static bool module_patching_disables_cds() { return _module_patching_disables_cds; }
+  static void set_module_patching_disables_cds() { _module_patching_disables_cds = true; }
+  static bool java_base_module_patching_disables_cds() { return _java_base_module_patching_disables_cds; }
+  static void set_java_base_module_patching_disables_cds() { _java_base_module_patching_disables_cds = true; }
   static const char* type_of_archive_being_loaded();
   static const char* type_of_archive_being_written();
 
@@ -129,6 +139,9 @@ public:
   // Misc CDS features
   static bool allow_only_single_java_thread()                NOT_CDS_RETURN_(false);
 
+  // This is *Legacy* optimization for lambdas before JEP 483. May be removed in the future.
+  static bool is_dumping_lambdas_in_legacy_mode()            NOT_CDS_RETURN_(false);
+
   // optimized_module_handling -- can we skip some expensive operations related to modules?
   static bool is_using_optimized_module_handling()           { return CDS_ONLY(_is_using_optimized_module_handling) NOT_CDS(false); }
   static void stop_using_optimized_module_handling()         NOT_CDS_RETURN;
@@ -166,6 +179,8 @@ public:
   static bool is_using_full_module_graph()                   NOT_CDS_JAVA_HEAP_RETURN_(false);
   static void stop_dumping_full_module_graph(const char* reason = nullptr) NOT_CDS_JAVA_HEAP_RETURN;
   static void stop_using_full_module_graph(const char* reason = nullptr) NOT_CDS_JAVA_HEAP_RETURN;
+
+  static bool is_valhalla_preview();
 
   // Some CDS functions assume that they are called only within a single-threaded context. I.e.,
   // they are called from:

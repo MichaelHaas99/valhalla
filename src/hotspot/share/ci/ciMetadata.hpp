@@ -55,9 +55,13 @@ class ciMetadata: public ciBaseObject {
   virtual bool is_method_data() const       { return false; }
   virtual bool is_klass() const             { return false; }
   virtual bool is_instance_klass() const    { return false; }
+  virtual bool is_inlinetype() const        { return false; }
   virtual bool is_array_klass() const       { return false; }
+  virtual bool is_flat_array_klass() const  { return false; }
   virtual bool is_obj_array_klass() const   { return false; }
   virtual bool is_type_array_klass() const  { return false; }
+  virtual bool is_wrapper() const           { return false; }
+  virtual bool flat_in_array() const        { return false; }
   virtual void dump_replay_data(outputStream* st) { /* do nothing */ }
 
   ciMethod*                as_method() {
@@ -92,6 +96,10 @@ class ciMetadata: public ciBaseObject {
     assert(is_array_klass(), "bad cast");
     return (ciArrayKlass*)this;
   }
+  ciFlatArrayKlass*        as_flat_array_klass() {
+    assert(is_flat_array_klass(), "bad cast");
+    return (ciFlatArrayKlass*)this;
+  }
   ciObjArrayKlass*         as_obj_array_klass() {
     assert(is_obj_array_klass(), "bad cast");
     return (ciObjArrayKlass*)this;
@@ -99,6 +107,14 @@ class ciMetadata: public ciBaseObject {
   ciTypeArrayKlass*        as_type_array_klass() {
     assert(is_type_array_klass(), "bad cast");
     return (ciTypeArrayKlass*)this;
+  }
+  ciInlineKlass*           as_inline_klass() {
+    assert(is_inlinetype(), "bad cast");
+    return (ciInlineKlass*)this;
+  }
+  ciWrapper*               as_wrapper() {
+    assert(is_wrapper(), "bad cast");
+    return (ciWrapper*)this;
   }
 
   Metadata* constant_encoding() { return _metadata; }

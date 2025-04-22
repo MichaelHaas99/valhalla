@@ -41,6 +41,7 @@
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/symbol.hpp"
+#include "oops/inlineKlass.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/deoptimization.hpp"
 #include "runtime/frame.inline.hpp"
@@ -151,7 +152,6 @@ bool SafepointSynchronize::thread_not_running(ThreadSafepointState *cur_state) {
     // Robustness: asserted in the caller, but handle/tolerate it for release bits.
     LogTarget(Error, safepoint) lt;
     if (lt.is_enabled()) {
-      ResourceMark rm;
       LogStream ls(lt);
       ls.print("Illegal initial state detected: ");
       cur_state->print_on(&ls);
@@ -164,7 +164,6 @@ bool SafepointSynchronize::thread_not_running(ThreadSafepointState *cur_state) {
   }
   LogTarget(Trace, safepoint) lt;
   if (lt.is_enabled()) {
-    ResourceMark rm;
     LogStream ls(lt);
     cur_state->print_on(&ls);
   }
@@ -784,17 +783,34 @@ void ThreadSafepointState::handle_polling_page_exception() {
   // return point does not mark the return value as an oop (if it is), so
   // it needs a handle here to be updated.
   if( nm->is_at_poll_return(real_return_addr) ) {
+    ResourceMark rm;
     // See if return type is an oop.
-    bool return_oop = nm->method()->is_returning_oop();
+    Method* method = nm->method();
+    bool return_oop = method->is_returning_oop();
     HandleMark hm(self);
-    Handle return_value;
+    GrowableArray<Handle> return_values;
+    InlineKlass* vk = nullptr;
+    if (return_oop && InlineTypeReturnedAsFields &&
+        (method->result_type() == T_OBJECT)) {
+      // Check if an inline type is returned as fields
+      vk = InlineKlass::returned_inline_klass(map);
+      if (vk != nullptr) {
+        // We're at a safepoint at the return of a method that returns
+        // multiple values. We must make sure we preserve the oop values
+        // across the safepoint.
+        assert(vk == method->returns_inline_type(thread()), "bad inline klass");
+        vk->save_oop_fields(map, return_values);
+        return_oop = false;
+      }
+    }
+
     if (return_oop) {
       // The oop result has been saved on the stack together with all
       // the other registers. In order to preserve it over GCs we need
       // to keep it in a handle.
       oop result = caller_fr.saved_oop_result(&map);
       assert(oopDesc::is_oop_or_null(result), "must be oop");
-      return_value = Handle(self, result);
+      return_values.push(Handle(self, result));
       assert(Universe::heap()->is_in_or_null(result), "must be heap pointer");
     }
 
@@ -808,7 +824,10 @@ void ThreadSafepointState::handle_polling_page_exception() {
 
     // restore oop result, if any
     if (return_oop) {
-      caller_fr.set_saved_oop_result(&map, return_value());
+      assert(return_values.length() == 1, "only one return value");
+      caller_fr.set_saved_oop_result(&map, return_values.pop()());
+    } else if (vk != nullptr) {
+      vk->restore_oop_results(map, return_values);
     }
   }
 

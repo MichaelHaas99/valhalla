@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,8 +23,11 @@
 
 /*
  * @test
- * @bug 8266670 8293626
+ * @bug 8266670 8281463 8293626
  * @summary Basic tests of AccessFlag
+ * @modules java.base/jdk.internal.misc
+ * @run main/othervm --enable-preview BasicAccessFlagTest
+ * @run main BasicAccessFlagTest
  */
 
 import java.lang.reflect.AccessFlag;
@@ -35,6 +38,9 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.Set;
+
+import jdk.internal.misc.PreviewFeatures;
+
 
 public class BasicAccessFlagTest {
     public static void main(String... args) throws Exception {
@@ -112,6 +118,8 @@ public class BasicAccessFlagTest {
 
             Set<AccessFlag.Location> locations = new HashSet<>();
             for (var accessFlag : value) {
+                if (accessFlag.equals(AccessFlag.SUPER))
+                    continue;       // SUPER is defined to overlap with IDENTITY
                 for (var location : accessFlag.locations()) {
                     boolean added = locations.add(location);
                     if (!added) {
@@ -141,7 +149,9 @@ public class BasicAccessFlagTest {
             for (var location : accessFlag.locations()) {
                 Set<AccessFlag> computedSet =
                     AccessFlag.maskToAccessFlags(accessFlag.mask(), location);
-                if (!expectedSet.equals(computedSet)) {
+                if (!computedSet.containsAll(expectedSet)) {
+                    System.out.println("expected: " + expectedSet);
+                    System.out.println("computed: " + computedSet);
                     throw new RuntimeException("Bad set computation on " +
                                                accessFlag + ", " + location);
                 }

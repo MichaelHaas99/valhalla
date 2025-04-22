@@ -167,6 +167,7 @@ class SerializeClosure;
   template(tag_inner_classes,                         "InnerClasses")                             \
   template(tag_nest_members,                          "NestMembers")                              \
   template(tag_nest_host,                             "NestHost")                                 \
+  template(tag_loadable_descriptors,                  "LoadableDescriptors")                      \
   template(tag_constant_value,                        "ConstantValue")                            \
   template(tag_code,                                  "Code")                                     \
   template(tag_exceptions,                            "Exceptions")                               \
@@ -203,6 +204,7 @@ class SerializeClosure;
   template(java_lang_IllegalCallerException,          "java/lang/IllegalCallerException")         \
   template(java_lang_IllegalStateException,           "java/lang/IllegalStateException")          \
   template(java_lang_IllegalMonitorStateException,    "java/lang/IllegalMonitorStateException")   \
+  template(java_lang_IdentityException,               "java/lang/IdentityException")              \
   template(java_lang_IllegalThreadStateException,     "java/lang/IllegalThreadStateException")    \
   template(java_lang_IndexOutOfBoundsException,       "java/lang/IndexOutOfBoundsException")      \
   template(java_lang_InstantiationException,          "java/lang/InstantiationException")         \
@@ -250,6 +252,8 @@ class SerializeClosure;
   template(java_util_concurrent_atomic_AtomicReferenceFieldUpdater_Impl,     "java/util/concurrent/atomic/AtomicReferenceFieldUpdater$AtomicReferenceFieldUpdaterImpl") \
   template(jdk_internal_vm_annotation_Contended_signature,                   "Ljdk/internal/vm/annotation/Contended;")    \
   template(jdk_internal_vm_annotation_ReservedStackAccess_signature,         "Ljdk/internal/vm/annotation/ReservedStackAccess;") \
+  template(jdk_internal_vm_annotation_LooselyConsistentValue_signature,      "Ljdk/internal/vm/annotation/LooselyConsistentValue;") \
+  template(jdk_internal_vm_annotation_NullRestricted_signature,              "Ljdk/internal/vm/annotation/NullRestricted;") \
   template(jdk_internal_ValueBased_signature,                                "Ljdk/internal/ValueBased;") \
                                                                                                   \
   /* class symbols needed by intrinsics */                                                        \
@@ -279,7 +283,6 @@ class SerializeClosure;
   template(returnType_name,                           "returnType")                               \
   template(signature_name,                            "signature")                                \
   template(slot_name,                                 "slot")                                     \
-  template(trusted_final_name,                        "trustedFinal")                             \
   template(blackhole_name,                            "<blackhole>")  /*fake name*/               \
                                                                                                   \
   /* Support for annotations (JDK 1.5 and above) */                                               \
@@ -501,6 +504,8 @@ class SerializeClosure;
   template(module_entry_name,                         "module_entry")                             \
   template(resolved_references_name,                  "<resolved_references>")                    \
   template(init_lock_name,                            "<init_lock>")                              \
+  template(null_reset_value_name,                     ".null_reset")                              \
+  template(empty_marker_name,                         ".empty")                                   \
   template(address_size_name,                         "ADDRESS_SIZE0")                            \
   template(page_size_name,                            "PAGE_SIZE")                                \
   template(big_endian_name,                           "BIG_ENDIAN")                               \
@@ -575,6 +580,7 @@ class SerializeClosure;
   template(class_int_signature,                       "(Ljava/lang/Class;)I")                     \
   template(class_long_signature,                      "(Ljava/lang/Class;)J")                     \
   template(class_boolean_signature,                   "(Ljava/lang/Class;)Z")                     \
+  template(class_class_signature,                     "(Ljava/lang/Class;)Ljava/lang/Class;")     \
   template(throwable_throwable_signature,             "(Ljava/lang/Throwable;)Ljava/lang/Throwable;")             \
   template(thread_void_signature,                     "(Ljava/lang/Thread;)V")                                    \
   template(runnable_void_signature,                   "(Ljava/lang/Runnable;)V")                                   \
@@ -584,6 +590,7 @@ class SerializeClosure;
   template(string_class_signature,                    "(Ljava/lang/String;)Ljava/lang/Class;")                    \
   template(string_boolean_class_signature,            "(Ljava/lang/String;Z)Ljava/lang/Class;")                   \
   template(object_object_object_signature,            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;") \
+  template(object_object_boolean_signature,           "(Ljava/lang/Object;Ljava/lang/Object;)Z")                  \
   template(string_string_signature,                   "(Ljava/lang/String;)Ljava/lang/String;")                   \
   template(classloader_class_string_string_long_signature,         "(Ljava/lang/ClassLoader;Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;)J")             \
   template(byte_array_void_signature,                 "([B)V")                                                    \
@@ -711,6 +718,8 @@ class SerializeClosure;
   template(classRedefinedCount_name,                   "classRedefinedCount")                                     \
   template(classLoader_name,                           "classLoader")                                             \
   template(componentType_name,                         "componentType")                                           \
+  template(primaryType_name,                           "primaryType")                                             \
+  template(secondaryType_name,                         "secondaryType")                                           \
                                                                                                                   \
   /* forEachRemaining support */                                                                                  \
   template(java_util_stream_StreamsRangeIntSpliterator,          "java/util/stream/Streams$RangeIntSpliterator")  \
@@ -738,6 +747,12 @@ class SerializeClosure;
   template(runtimeSetup,                                    "runtimeSetup")                                       \
   template(toFileURL_name,                                  "toFileURL")                                          \
   template(toFileURL_signature,                             "(Ljava/lang/String;)Ljava/net/URL;")                 \
+                                                                                                                  \
+  template(java_lang_runtime_ValueObjectMethods,            "java/lang/runtime/ValueObjectMethods")               \
+  template(isSubstitutable_name,                            "isSubstitutable")                                    \
+  template(valueObjectHashCode_name,                        "valueObjectHashCode")                                \
+  template(jdk_internal_value_PrimitiveClass,               "jdk/internal/value/PrimitiveClass")                  \
+  template(jdk_internal_value_ValueClass,                   "jdk/internal/value/ValueClass")                      \
                                                                                                                   \
   /* jcmd Thread.dump_to_file */                                                                                  \
   template(jdk_internal_vm_ThreadDumper,           "jdk/internal/vm/ThreadDumper")                                \

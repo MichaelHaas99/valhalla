@@ -33,7 +33,7 @@ ciType* ciType::_basic_types[T_CONFLICT+1];
 
 // ciType
 //
-// This class represents a Java reference or primitive type.
+// This class represents a Java reference, inline type or primitive type.
 
 // ------------------------------------------------------------------
 // ciType::ciType

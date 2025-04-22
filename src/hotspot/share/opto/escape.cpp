@@ -28,6 +28,7 @@
 #include "gc/shared/c2/barrierSetC2.hpp"
 #include "libadt/vectset.hpp"
 #include "memory/allocation.hpp"
+#include "memory/metaspace.hpp"
 #include "memory/resourceArea.hpp"
 #include "opto/c2compiler.hpp"
 #include "opto/arraycopynode.hpp"
@@ -35,6 +36,7 @@
 #include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/escape.hpp"
+#include "opto/inlinetypenode.hpp"
 #include "opto/macro.hpp"
 #include "opto/locknode.hpp"
 #include "opto/phaseX.hpp"
@@ -163,6 +165,16 @@ bool ConnectionGraph::compute_escape() {
   java_objects_worklist.append(phantom_obj);
   for( uint next = 0; next < ideal_nodes.size(); ++next ) {
     Node* n = ideal_nodes.at(next);
+    if ((n->Opcode() == Op_LoadX || n->Opcode() == Op_StoreX) &&
+        !n->in(MemNode::Address)->is_AddP() &&
+        _igvn->type(n->in(MemNode::Address))->isa_oopptr()) {
+      // Load/Store at mark work address is at offset 0 so has no AddP which confuses EA
+      Node* addp = new AddPNode(n->in(MemNode::Address), n->in(MemNode::Address), _igvn->MakeConX(0));
+      _igvn->register_new_node_with_optimizer(addp);
+      _igvn->replace_input_of(n, MemNode::Address, addp);
+      ideal_nodes.push(addp);
+      _nodes.at_put_grow(addp->_idx, nullptr, nullptr);
+    }
     // Create PointsTo nodes and add them to Connection Graph. Called
     // only once per ideal node since ideal_nodes is Unique_Node list.
     add_node_to_connection_graph(n, &delayed_worklist);
@@ -1252,8 +1264,17 @@ bool ConnectionGraph::reduce_phi_on_safepoints_helper(Node* ophi, Node* cast, No
       }
 
       AllocateNode* alloc = ptn->ideal_node()->as_Allocate();
-      SafePointScalarObjectNode* sobj = mexp.create_scalarized_object_description(alloc, sfpt);
+      Unique_Node_List value_worklist;
+#ifdef ASSERT
+      const Type* res_type = alloc->result_cast()->bottom_type();
+      if (res_type->is_inlinetypeptr() && !Compile::current()->has_circular_inline_type()) {
+        PhiNode* phi = ophi->as_Phi();
+        assert(!ophi->as_Phi()->can_push_inline_types_down(_igvn), "missed earlier scalarization opportunity");
+      }
+#endif
+      SafePointScalarObjectNode* sobj = mexp.create_scalarized_object_description(alloc, sfpt, &value_worklist);
       if (sobj == nullptr) {
+        _compile->record_failure(C2Compiler::retry_no_reduce_allocation_merges());
         return false;
       }
 
@@ -1264,6 +1285,15 @@ bool ConnectionGraph::reduce_phi_on_safepoints_helper(Node* ophi, Node* cast, No
 
       // Register the scalarized object as a candidate for reallocation
       smerge->add_req(sobj);
+
+      // Scalarize inline types that were added to the safepoint.
+      // Don't allow linking a constant oop (if available) for flat array elements
+      // because Deoptimization::reassign_flat_array_elements needs field values.
+      const bool allow_oop = !merge_t->is_flat();
+      for (uint j = 0; j < value_worklist.size(); ++j) {
+        InlineTypeNode* vt = value_worklist.at(j)->as_InlineType();
+        vt->make_scalar_in_safepoints(_igvn, allow_oop);
+      }
     }
 
     // Replaces debug information references to "original_sfpt_parent" in "sfpt" with references to "smerge"
@@ -1462,7 +1492,7 @@ bool ConnectionGraph::has_arg_escape(CallJavaNode* call) {
     // no arg escapes through uncommon traps
     if (strcmp(name, "uncommon_trap") != 0) {
       // process_call_arguments() assumes that all arguments escape globally
-      const TypeTuple* d = call->tf()->domain();
+      const TypeTuple* d = call->tf()->domain_sig();
       for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
         const Type* at = d->field_at(i);
         if (at->isa_oopptr() != nullptr) {
@@ -1536,6 +1566,17 @@ void ConnectionGraph::add_node_to_connection_graph(Node *n, Unique_Node_List *de
           (n->is_CallStaticJava() &&
            n->as_CallStaticJava()->is_boxing_method())) {
         add_call_node(n->as_Call());
+      } else if (n->as_Call()->tf()->returns_inline_type_as_fields()) {
+        bool returns_oop = false;
+        for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax && !returns_oop; i++) {
+          ProjNode* pn = n->fast_out(i)->as_Proj();
+          if (pn->_con >= TypeFunc::Parms && pn->bottom_type()->isa_ptr()) {
+            returns_oop = true;
+          }
+        }
+        if (returns_oop) {
+          add_call_node(n->as_Call());
+        }
       }
     }
     return;
@@ -1563,10 +1604,12 @@ void ConnectionGraph::add_node_to_connection_graph(Node *n, Unique_Node_List *de
       }
       break;
     }
-    case Op_CastX2P: {
+    case Op_CastX2P:
+    case Op_CastI2N: {
       map_ideal_node(n, phantom_obj);
       break;
     }
+    case Op_InlineType:
     case Op_CastPP:
     case Op_CheckCastPP:
     case Op_EncodeP:
@@ -1638,8 +1681,10 @@ void ConnectionGraph::add_node_to_connection_graph(Node *n, Unique_Node_List *de
     }
     case Op_Proj: {
       // we are only interested in the oop result projection from a call
-      if (n->as_Proj()->_con == TypeFunc::Parms && n->in(0)->is_Call() &&
-          n->in(0)->as_Call()->returns_pointer()) {
+      if (n->as_Proj()->_con >= TypeFunc::Parms && n->in(0)->is_Call() &&
+          (n->in(0)->as_Call()->returns_pointer() || n->bottom_type()->isa_ptr())) {
+        assert((n->as_Proj()->_con == TypeFunc::Parms && n->in(0)->as_Call()->returns_pointer()) ||
+               n->in(0)->as_Call()->tf()->returns_inline_type_as_fields(), "what kind of oop return is it?");
         add_local_var_and_edge(n, PointsToNode::NoEscape, n->in(0), delayed_worklist);
       }
       break;
@@ -1741,6 +1786,7 @@ void ConnectionGraph::add_final_edges(Node *n) {
       add_base(n_ptn->as_Field(), ptn_base);
       break;
     }
+    case Op_InlineType:
     case Op_CastPP:
     case Op_CheckCastPP:
     case Op_EncodeP:
@@ -1795,8 +1841,8 @@ void ConnectionGraph::add_final_edges(Node *n) {
     }
     case Op_Proj: {
       // we are only interested in the oop result projection from a call
-      assert(n->as_Proj()->_con == TypeFunc::Parms && n->in(0)->is_Call() &&
-             n->in(0)->as_Call()->returns_pointer(), "Unexpected node type");
+      assert((n->as_Proj()->_con == TypeFunc::Parms && n->in(0)->as_Call()->returns_pointer()) ||
+             n->in(0)->as_Call()->tf()->returns_inline_type_as_fields(), "what kind of oop return is it?");
       add_local_var_and_edge(n, PointsToNode::NoEscape, n->in(0), nullptr);
       break;
     }
@@ -1972,7 +2018,7 @@ bool ConnectionGraph::add_final_edges_unsafe_access(Node* n, uint opcode) {
 }
 
 void ConnectionGraph::add_call_node(CallNode* call) {
-  assert(call->returns_pointer(), "only for call which returns pointer");
+  assert(call->returns_pointer() || call->tf()->returns_inline_type_as_fields(), "only for call which returns pointer");
   uint call_idx = call->_idx;
   if (call->is_Allocate()) {
     Node* k = call->in(AllocateNode::KlassNode);
@@ -2048,7 +2094,8 @@ void ConnectionGraph::add_call_node(CallNode* call) {
     ciMethod* meth = call->as_CallJava()->method();
     if (meth == nullptr) {
       const char* name = call->as_CallStaticJava()->_name;
-      assert(strncmp(name, "C2 Runtime multianewarray", 25) == 0, "TODO: add failed case check");
+      assert(strncmp(name, "C2 Runtime multianewarray", 25) == 0 ||
+             strncmp(name, "C2 Runtime load_unknown_inline", 30) == 0, "TODO: add failed case check");
       // Returns a newly allocated non-escaped object.
       add_java_object(call, PointsToNode::NoEscape);
       set_not_scalar_replaceable(ptnode_adr(call_idx) NOT_PRODUCT(COMMA "is result of multinewarray"));
@@ -2079,7 +2126,7 @@ void ConnectionGraph::add_call_node(CallNode* call) {
         set_not_scalar_replaceable(ptnode_adr(call_idx) NOT_PRODUCT(COMMA "is result of call"));
       } else {
         // Determine whether any arguments are returned.
-        const TypeTuple* d = call->tf()->domain();
+        const TypeTuple* d = call->tf()->domain_cc();
         bool ret_arg = false;
         for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
           if (d->field_at(i)->isa_ptr() != nullptr &&
@@ -2127,7 +2174,7 @@ void ConnectionGraph::process_call_arguments(CallNode *call) {
     case Op_CallLeaf: {
       // Stub calls, objects do not escape but they are not scale replaceable.
       // Adjust escape state for outgoing arguments.
-      const TypeTuple * d = call->tf()->domain();
+      const TypeTuple * d = call->tf()->domain_sig();
       bool src_has_oops = false;
       for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
         const Type* at = d->field_at(i);
@@ -2158,7 +2205,10 @@ void ConnectionGraph::process_call_arguments(CallNode *call) {
                  aat->isa_ptr() != nullptr, "expecting an Ptr");
           bool arg_has_oops = aat->isa_oopptr() &&
                               (aat->isa_instptr() ||
-                               (aat->isa_aryptr() && (aat->isa_aryptr()->elem() == Type::BOTTOM || aat->isa_aryptr()->elem()->make_oopptr() != nullptr)));
+                               (aat->isa_aryptr() && (aat->isa_aryptr()->elem() == Type::BOTTOM || aat->isa_aryptr()->elem()->make_oopptr() != nullptr)) ||
+                               (aat->isa_aryptr() && aat->isa_aryptr()->elem() != nullptr &&
+                                                               aat->isa_aryptr()->is_flat() &&
+                                                               aat->isa_aryptr()->elem()->inline_klass()->contains_oops()));
           if (i == TypeFunc::Parms) {
             src_has_oops = arg_has_oops;
           }
@@ -2215,6 +2265,9 @@ void ConnectionGraph::process_call_arguments(CallNode *call) {
                   strcmp(call->as_CallLeaf()->_name, "mulAdd") == 0 ||
                   strcmp(call->as_CallLeaf()->_name, "montgomery_multiply") == 0 ||
                   strcmp(call->as_CallLeaf()->_name, "montgomery_square") == 0 ||
+                  strcmp(call->as_CallLeaf()->_name, "vectorizedMismatch") == 0 ||
+                  strcmp(call->as_CallLeaf()->_name, "load_unknown_inline") == 0 ||
+                  strcmp(call->as_CallLeaf()->_name, "store_unknown_inline") == 0 ||
                   strcmp(call->as_CallLeaf()->_name, "bigIntegerRightShiftWorker") == 0 ||
                   strcmp(call->as_CallLeaf()->_name, "bigIntegerLeftShiftWorker") == 0 ||
                   strcmp(call->as_CallLeaf()->_name, "vectorizedMismatch") == 0 ||
@@ -2281,7 +2334,7 @@ void ConnectionGraph::process_call_arguments(CallNode *call) {
       // fall-through if not a Java method or no analyzer information
       if (call_analyzer != nullptr) {
         PointsToNode* call_ptn = ptnode_adr(call->_idx);
-        const TypeTuple* d = call->tf()->domain();
+        const TypeTuple* d = call->tf()->domain_cc();
         for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
           const Type* at = d->field_at(i);
           int k = i - TypeFunc::Parms;
@@ -2325,7 +2378,7 @@ void ConnectionGraph::process_call_arguments(CallNode *call) {
       // Fall-through here if not a Java method or no analyzer information
       // or some other type of call, assume the worst case: all arguments
       // globally escape.
-      const TypeTuple* d = call->tf()->domain();
+      const TypeTuple* d = call->tf()->domain_cc();
       for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
         const Type* at = d->field_at(i);
         if (at->isa_oopptr() != nullptr) {
@@ -2738,18 +2791,28 @@ int ConnectionGraph::find_field_value(FieldNode* field) {
 // Find fields initializing values for allocations.
 int ConnectionGraph::find_init_values_phantom(JavaObjectNode* pta) {
   assert(pta->escape_state() == PointsToNode::NoEscape, "Not escaped Allocate nodes only");
+  PointsToNode* init_val = phantom_obj;
   Node* alloc = pta->ideal_node();
 
   // Do nothing for Allocate nodes since its fields values are
   // "known" unless they are initialized by arraycopy/clone.
   if (alloc->is_Allocate() && !pta->arraycopy_dst()) {
-    return 0;
+    if (alloc->as_Allocate()->in(AllocateNode::InitValue) != nullptr) {
+      // Non-flat inline type arrays are initialized with
+      // an init value instead of null. Handle them here.
+      init_val = ptnode_adr(alloc->as_Allocate()->in(AllocateNode::InitValue)->_idx);
+      assert(init_val != nullptr, "init value should be registered");
+    } else {
+      return 0;
+    }
   }
-  assert(pta->arraycopy_dst() || alloc->as_CallStaticJava(), "sanity");
+  // Non-escaped allocation returned from Java or runtime call has unknown values in fields.
+  assert(pta->arraycopy_dst() || alloc->is_CallStaticJava() || init_val != phantom_obj, "sanity");
 #ifdef ASSERT
-  if (!pta->arraycopy_dst() && alloc->as_CallStaticJava()->method() == nullptr) {
+  if (alloc->is_CallStaticJava() && alloc->as_CallStaticJava()->method() == nullptr) {
     const char* name = alloc->as_CallStaticJava()->_name;
-    assert(strncmp(name, "C2 Runtime multianewarray", 25) == 0, "sanity");
+    assert(strncmp(name, "C2 Runtime multianewarray", 25) == 0 ||
+           strncmp(name, "C2 Runtime load_unknown_inline", 30) == 0, "sanity");
   }
 #endif
   // Non-escaped allocation returned from Java or runtime call have unknown values in fields.
@@ -2757,7 +2820,7 @@ int ConnectionGraph::find_init_values_phantom(JavaObjectNode* pta) {
   for (EdgeIterator i(pta); i.has_next(); i.next()) {
     PointsToNode* field = i.get();
     if (field->is_Field() && field->as_Field()->is_oop()) {
-      if (add_edge(field, phantom_obj)) {
+      if (add_edge(field, init_val)) {
         // New edge was added
         new_edges++;
         add_field_uses_to_worklist(field->as_Field());
@@ -2772,7 +2835,7 @@ int ConnectionGraph::find_init_values_null(JavaObjectNode* pta, PhaseValues* pha
   assert(pta->escape_state() == PointsToNode::NoEscape, "Not escaped Allocate nodes only");
   Node* alloc = pta->ideal_node();
   // Do nothing for Call nodes since its fields values are unknown.
-  if (!alloc->is_Allocate()) {
+  if (!alloc->is_Allocate() || alloc->as_Allocate()->in(AllocateNode::InitValue) != nullptr) {
     return 0;
   }
   InitializeNode* ini = alloc->as_Allocate()->initialization();
@@ -2858,9 +2921,9 @@ int ConnectionGraph::find_init_values_null(JavaObjectNode* pta, PhaseValues* pha
               if (missed_obj != nullptr) {
                 tty->print_cr("----------field---------------------------------");
                 field->dump();
-                tty->print_cr("----------missed referernce to object-----------");
+                tty->print_cr("----------missed reference to object------------");
                 missed_obj->dump();
-                tty->print_cr("----------object referernced by init store -----");
+                tty->print_cr("----------object referenced by init store-------");
                 store->dump();
                 val->dump();
                 assert(!field->points_to(missed_obj->as_JavaObject()), "missed JavaObject reference");
@@ -3216,7 +3279,8 @@ void ConnectionGraph::optimize_ideal_graph(GrowableArray<Node*>& ptr_cmp_worklis
       if (n->is_AbstractLock()) { // Lock and Unlock nodes
         AbstractLockNode* alock = n->as_AbstractLock();
         if (!alock->is_non_esc_obj()) {
-          if (can_eliminate_lock(alock)) {
+          const Type* obj_type = igvn->type(alock->obj_node());
+          if (can_eliminate_lock(alock) && !obj_type->is_inlinetypeptr()) {
             assert(!alock->is_eliminated() || alock->is_coarsened(), "sanity");
             // The lock could be marked eliminated by lock coarsening
             // code during first IGVN before EA. Replace coarsened flag
@@ -3258,11 +3322,16 @@ void ConnectionGraph::optimize_ideal_graph(GrowableArray<Node*>& ptr_cmp_worklis
     Node* storestore = storestore_worklist.at(i);
     Node* alloc = storestore->in(MemBarNode::Precedent)->in(0);
     if (alloc->is_Allocate() && not_global_escape(alloc)) {
-      MemBarNode* mb = MemBarNode::make(C, Op_MemBarCPUOrder, Compile::AliasIdxBot);
-      mb->init_req(TypeFunc::Memory,  storestore->in(TypeFunc::Memory));
-      mb->init_req(TypeFunc::Control, storestore->in(TypeFunc::Control));
-      igvn->register_new_node_with_optimizer(mb);
-      igvn->replace_node(storestore, mb);
+      if (alloc->in(AllocateNode::InlineType) != nullptr) {
+        // Non-escaping inline type buffer allocations don't require a membar
+        storestore->as_MemBar()->remove(_igvn);
+      } else {
+        MemBarNode* mb = MemBarNode::make(C, Op_MemBarCPUOrder, Compile::AliasIdxBot);
+        mb->init_req(TypeFunc::Memory,  storestore->in(TypeFunc::Memory));
+        mb->init_req(TypeFunc::Control, storestore->in(TypeFunc::Control));
+        igvn->register_new_node_with_optimizer(mb);
+        igvn->replace_node(storestore, mb);
+      }
     }
   }
 }
@@ -3424,8 +3493,9 @@ void ConnectionGraph::add_arraycopy(Node *n, PointsToNode::EscapeState es,
 
 bool ConnectionGraph::is_oop_field(Node* n, int offset, bool* unsafe) {
   const Type* adr_type = n->as_AddP()->bottom_type();
+  int field_offset = adr_type->isa_aryptr() ? adr_type->isa_aryptr()->field_offset().get() : Type::OffsetBot;
   BasicType bt = T_INT;
-  if (offset == Type::OffsetBot) {
+  if (offset == Type::OffsetBot && field_offset == Type::OffsetBot) {
     // Check only oop fields.
     if (!adr_type->isa_aryptr() ||
         adr_type->isa_aryptr()->elem() == Type::BOTTOM ||
@@ -3437,7 +3507,7 @@ bool ConnectionGraph::is_oop_field(Node* n, int offset, bool* unsafe) {
     }
   } else if (offset != oopDesc::klass_offset_in_bytes()) {
     if (adr_type->isa_instptr()) {
-      ciField* field = _compile->alias_type(adr_type->isa_instptr())->field();
+      ciField* field = _compile->alias_type(adr_type->is_ptr())->field();
       if (field != nullptr) {
         bt = field->layout_type();
       } else {
@@ -3456,8 +3526,14 @@ bool ConnectionGraph::is_oop_field(Node* n, int offset, bool* unsafe) {
       } else if (find_second_addp(n, n->in(AddPNode::Base)) != nullptr) {
         // Ignore first AddP.
       } else {
-        const Type* elemtype = adr_type->isa_aryptr()->elem();
-        bt = elemtype->array_element_basic_type();
+        const Type* elemtype = adr_type->is_aryptr()->elem();
+        if (adr_type->is_aryptr()->is_flat() && field_offset != Type::OffsetBot) {
+          ciInlineKlass* vk = elemtype->inline_klass();
+          field_offset += vk->payload_offset();
+          bt = vk->get_field_by_offset(field_offset, false)->layout_type();
+        } else {
+          bt = elemtype->array_element_basic_type();
+        }
       }
     } else if (adr_type->isa_rawptr() || adr_type->isa_klassptr()) {
       // Allocation initialization, ThreadLocal field access, unsafe access
@@ -3654,9 +3730,7 @@ int ConnectionGraph::address_offset(Node* adr, PhaseValues* phase) {
            "offset must be a constant or it is initialization of array");
     return offs;
   }
-  const TypePtr *t_ptr = adr_type->isa_ptr();
-  assert(t_ptr != nullptr, "must be a pointer type");
-  return t_ptr->offset();
+  return adr_type->is_ptr()->flat_offset();
 }
 
 Node* ConnectionGraph::get_addp_base(Node *addp) {
@@ -3810,9 +3884,16 @@ bool ConnectionGraph::split_AddP(Node *addp, Node *base) {
     assert(addp->in(AddPNode::Address)->is_Proj(), "base of raw address must be result projection from allocation");
     intptr_t offs = (int)igvn->find_intptr_t_con(addp->in(AddPNode::Offset), Type::OffsetBot);
     assert(offs != Type::OffsetBot, "offset must be a constant");
-    t = base_t->add_offset(offs)->is_oopptr();
+    if (base_t->isa_aryptr() != nullptr) {
+      // In the case of a flat inline type array, each field has its
+      // own slice so we need to extract the field being accessed from
+      // the address computation
+      t = base_t->isa_aryptr()->add_field_offset_and_offset(offs)->is_oopptr();
+    } else {
+      t = base_t->add_offset(offs)->is_oopptr();
+    }
   }
-  int inst_id =  base_t->instance_id();
+  int inst_id = base_t->instance_id();
   assert(!t->is_known_instance() || t->instance_id() == inst_id,
                              "old type must be non-instance or match new type");
 
@@ -3826,7 +3907,7 @@ bool ConnectionGraph::split_AddP(Node *addp, Node *base) {
   // of the allocation type was not propagated to the subclass type check.
   //
   // Or the type 't' could be not related to 'base_t' at all.
-  // It could happened when CHA type is different from MDO type on a dead path
+  // It could happen when CHA type is different from MDO type on a dead path
   // (for example, from instanceof check) which is not collapsed during parsing.
   //
   // Do nothing for such AddP node and don't process its users since
@@ -3836,7 +3917,18 @@ bool ConnectionGraph::split_AddP(Node *addp, Node *base) {
       !base_t->maybe_java_subtype_of(t)) {
      return false; // bail out
   }
-  const TypeOopPtr *tinst = base_t->add_offset(t->offset())->is_oopptr();
+  const TypePtr* tinst = base_t->add_offset(t->offset());
+  if (tinst->isa_aryptr() && t->isa_aryptr()) {
+    // In the case of a flat inline type array, each field has its
+    // own slice so we need to keep track of the field being accessed.
+    tinst = tinst->is_aryptr()->with_field_offset(t->is_aryptr()->field_offset().get());
+    // Keep array properties (not flat/null-free)
+    tinst = tinst->is_aryptr()->update_properties(t->is_aryptr());
+    if (tinst == nullptr) {
+      return false; // Skip dead path with inconsistent properties
+    }
+  }
+
   // Do NOT remove the next line: ensure a new alias index is allocated
   // for the instance type. Note: C++ will not remove it since the call
   // has side effect.
@@ -4542,6 +4634,13 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
           tn_t = tn_type->isa_oopptr();
         }
         if (tn_t != nullptr && tinst->maybe_java_subtype_of(tn_t)) {
+          if (tn_t->isa_aryptr()) {
+            // Keep array properties (not flat/null-free)
+            tinst = tinst->is_aryptr()->update_properties(tn_t->is_aryptr());
+            if (tinst == nullptr) {
+              continue; // Skip dead path with inconsistent properties
+            }
+          }
           if (tn_type->isa_narrowoop()) {
             tn_type = tinst->make_narrowoop();
           } else {
@@ -4567,7 +4666,7 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
     // push allocation's users on appropriate worklist
     for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
       Node *use = n->fast_out(i);
-      if(use->is_Mem() && use->in(MemNode::Address) == n) {
+      if (use->is_Mem() && use->in(MemNode::Address) == n) {
         // Load/store to instance's field
         memnode_worklist.append_if_missing(use);
       } else if (use->is_MemBar()) {
@@ -4603,6 +4702,9 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
           // EncodeISOArray overwrites destination array
           memnode_worklist.append_if_missing(use);
         }
+      } else if (use->Opcode() == Op_Return) {
+        // Allocation is referenced by field of returned inline type
+        assert(_compile->tf()->returns_inline_type_as_fields(), "EA: unexpected reference by ReturnNode");
       } else {
         uint op = use->Opcode();
         if ((op == Op_StrCompressedCopy || op == Op_StrInflatedCopy) &&
@@ -4616,7 +4718,7 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
               op == Op_StrCompressedCopy || op == Op_StrInflatedCopy ||
               op == Op_StrEquals || op == Op_VectorizedHashCode ||
               op == Op_StrIndexOf || op == Op_StrIndexOfChar ||
-              op == Op_SubTypeCheck ||
+              op == Op_SubTypeCheck || op == Op_InlineType || op == Op_FlatArrayCheck ||
               op == Op_ReinterpretS2HF ||
               BarrierSet::barrier_set()->barrier_set_c2()->is_gc_barrier_node(use))) {
           n->dump();
@@ -4720,6 +4822,9 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
       // get the memory projection
       n = n->find_out_with(Op_SCMemProj);
       assert(n != nullptr && n->Opcode() == Op_SCMemProj, "memory projection required");
+    } else if (n->is_CallLeaf() && n->as_CallLeaf()->_name != nullptr &&
+               strcmp(n->as_CallLeaf()->_name, "store_unknown_inline") == 0) {
+      n = n->as_CallLeaf()->proj_out(TypeFunc::Memory);
     } else {
 #ifdef ASSERT
       if (!n->is_Mem()) {
@@ -4764,7 +4869,7 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
           memnode_worklist.append_if_missing(use);
         }
 #ifdef ASSERT
-      } else if(use->is_Mem()) {
+      } else if (use->is_Mem()) {
         assert(use->in(MemNode::Memory) != n, "EA: missing memory path");
       } else if (use->is_MergeMem()) {
         assert(mergemem_worklist.contains(use->as_MergeMem()), "EA: missing MergeMem node in the worklist");
@@ -4773,6 +4878,10 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
           // EncodeISOArray overwrites destination array
           memnode_worklist.append_if_missing(use);
         }
+      } else if (use->is_CallLeaf() && use->as_CallLeaf()->_name != nullptr &&
+                 strcmp(use->as_CallLeaf()->_name, "store_unknown_inline") == 0) {
+        // store_unknown_inline overwrites destination array
+        memnode_worklist.append_if_missing(use);
       } else {
         uint op = use->Opcode();
         if ((use->in(MemNode::Memory) == n) &&
@@ -4782,7 +4891,7 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
         } else if (!(BarrierSet::barrier_set()->barrier_set_c2()->is_gc_barrier_node(use) ||
               op == Op_AryEq || op == Op_StrComp || op == Op_CountPositives ||
               op == Op_StrCompressedCopy || op == Op_StrInflatedCopy || op == Op_VectorizedHashCode ||
-              op == Op_StrEquals || op == Op_StrIndexOf || op == Op_StrIndexOfChar)) {
+              op == Op_StrEquals || op == Op_StrIndexOf || op == Op_StrIndexOfChar || op == Op_FlatArrayCheck)) {
           n->dump();
           use->dump();
           assert(false, "EA: missing memory path");
@@ -4883,7 +4992,7 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
   // First update the inputs of any non-instance Phi's from
   // which we split out an instance Phi.  Note we don't have
   // to recursively process Phi's encountered on the input memory
-  // chains as is done in split_memory_phi() since they  will
+  // chains as is done in split_memory_phi() since they will
   // also be processed here.
   for (int j = 0; j < orig_phis.length(); j++) {
     PhiNode *phi = orig_phis.at(j);

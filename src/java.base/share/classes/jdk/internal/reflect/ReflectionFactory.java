@@ -204,6 +204,9 @@ public class ReflectionFactory {
         if (!Externalizable.class.isAssignableFrom(cl)) {
             return null;
         }
+        if (cl.isValue()) {
+            throw new UnsupportedOperationException("newConstructorForExternalization does not support value classes");
+        }
         try {
             Constructor<?> cons = cl.getConstructor();
             cons.setAccessible(true);
@@ -219,6 +222,9 @@ public class ReflectionFactory {
         if (constructorToCall.getDeclaringClass() == cl) {
             constructorToCall.setAccessible(true);
             return constructorToCall;
+        }
+        if (cl.isValue()) {
+            throw new UnsupportedOperationException("newConstructorForSerialization does not support value classes");
         }
         return generateConstructor(cl, constructorToCall);
     }
@@ -279,6 +285,10 @@ public class ReflectionFactory {
      * @return the generated constructor, or null if none is available
      */
     public final Constructor<?> newConstructorForSerialization(Class<?> cl) {
+        if (cl.isValue()) {
+            throw new UnsupportedOperationException("newConstructorForSerialization does not support value classes: " + cl);
+        }
+
         Class<?> initCl = cl;
         while (Serializable.class.isAssignableFrom(initCl)) {
             Class<?> prev = initCl;

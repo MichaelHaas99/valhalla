@@ -81,6 +81,9 @@ public final class Attributes {
     /** LineNumberTable */
     public static final String NAME_LINE_NUMBER_TABLE = "LineNumberTable";
 
+    /** LoadableDescriptors */
+    public static final String NAME_LOADABLE_DESCRIPTORS = "LoadableDescriptors";
+
     /** LocalVariableTable */
     public static final String NAME_LOCAL_VARIABLE_TABLE = "LocalVariableTable";
 
@@ -243,6 +246,14 @@ public final class Attributes {
      */
     public static AttributeMapper<LineNumberTableAttribute> lineNumberTable() {
         return LineNumberTableMapper.INSTANCE;
+    }
+
+    /**
+     * {@return Attribute mapper for the {@code LoadableDescriptors} attribute}
+     * @since 23
+     */
+    public static AttributeMapper<LoadableDescriptorsAttribute> loadableDescriptors() {
+        return LoadableDescriptorsMapper.INSTANCE;
     }
 
     /**

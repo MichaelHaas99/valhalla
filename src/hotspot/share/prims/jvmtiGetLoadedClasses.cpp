@@ -27,6 +27,7 @@
 #include "classfile/javaClasses.hpp"
 #include "gc/shared/collectedHeap.hpp"
 #include "memory/universe.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/klass.inline.hpp"
 #include "prims/jvmtiGetLoadedClasses.hpp"
 #include "runtime/handles.inline.hpp"
@@ -77,6 +78,7 @@ public:
       for (Klass* l = k->array_klass_or_null(); l != nullptr; l = l->array_klass_or_null()) {
         _classStack.push((jclass) _env->jni_reference(Handle(_cur_thread, l->java_mirror())));
       }
+      // CMH flat arrays (InlineKlass)
     }
   }
 

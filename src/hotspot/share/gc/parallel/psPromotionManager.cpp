@@ -43,6 +43,7 @@
 #include "memory/resourceArea.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/compressedOops.inline.hpp"
+#include "oops/flatArrayKlass.inline.hpp"
 #include "utilities/checkedCast.hpp"
 
 PaddedEnd<PSPromotionManager>* PSPromotionManager::_manager_array = nullptr;

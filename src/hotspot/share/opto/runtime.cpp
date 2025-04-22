@@ -44,6 +44,8 @@
 #include "logging/logStream.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
+#include "oops/flatArrayKlass.hpp"
+#include "oops/flatArrayOop.inline.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/klass.inline.hpp"
 #include "oops/oop.inline.hpp"
@@ -132,7 +134,9 @@ static bool check_compiled_frame(JavaThread* thread) {
 */
 
 #define GEN_C2_BLOB(name, type)                    \
-  generate_ ## name ## _blob();
+  BLOB_FIELD_NAME(name) =                       \
+    generate_ ## name ## _blob();                  \
+  if (BLOB_FIELD_NAME(name) == nullptr) { return false; }
 
 // a few helper macros to conjure up generate_stub call arguments
 #define C2_STUB_FIELD_NAME(name) _ ## name ## _Java
@@ -194,6 +198,7 @@ bool OptoRuntime::generate(ciEnv* env) {
 
 const TypeFunc* OptoRuntime::_new_instance_Type                   = nullptr;
 const TypeFunc* OptoRuntime::_new_array_Type                      = nullptr;
+const TypeFunc* OptoRuntime::_new_array_nozero_Type               = nullptr;
 const TypeFunc* OptoRuntime::_multianewarray2_Type                = nullptr;
 const TypeFunc* OptoRuntime::_multianewarray3_Type                = nullptr;
 const TypeFunc* OptoRuntime::_multianewarray4_Type                = nullptr;
@@ -319,7 +324,7 @@ void OptoRuntime::complete_monitor_locking_C(oopDesc* obj, BasicLock* lock, Java
 // and try allocation again.
 
 // object allocation
-JRT_BLOCK_ENTRY(void, OptoRuntime::new_instance_C(Klass* klass, JavaThread* current))
+JRT_BLOCK_ENTRY(void, OptoRuntime::new_instance_C(Klass* klass, bool is_larval, JavaThread* current))
   JRT_BLOCK;
 #ifndef PRODUCT
   SharedRuntime::_new_instance_ctr++;         // new instance requires GC
@@ -339,7 +344,11 @@ JRT_BLOCK_ENTRY(void, OptoRuntime::new_instance_C(Klass* klass, JavaThread* curr
   if (!HAS_PENDING_EXCEPTION) {
     // Scavenge and allocate an instance.
     Handle holder(current, klass->klass_holder()); // keep the klass alive
-    oop result = InstanceKlass::cast(klass)->allocate_instance(THREAD);
+    instanceOop result = InstanceKlass::cast(klass)->allocate_instance(THREAD);
+    if (is_larval) {
+      // Check if this is a larval buffer allocation
+      result->set_mark(result->mark().enter_larval_state());
+    }
     current->set_vm_result(result);
 
     // Pass oops back through thread local storage.  Our apparent type to Java
@@ -357,7 +366,7 @@ JRT_END
 
 
 // array allocation
-JRT_BLOCK_ENTRY(void, OptoRuntime::new_array_C(Klass* array_type, int len, JavaThread* current))
+JRT_BLOCK_ENTRY(void, OptoRuntime::new_array_C(Klass* array_type, int len, oopDesc* init_val, JavaThread* current))
   JRT_BLOCK;
 #ifndef PRODUCT
   SharedRuntime::_new_array_ctr++;            // new array requires GC
@@ -366,19 +375,34 @@ JRT_BLOCK_ENTRY(void, OptoRuntime::new_array_C(Klass* array_type, int len, JavaT
 
   // Scavenge and allocate an instance.
   oop result;
+  Handle h_init_val(current, init_val); // keep the init_val object alive
 
-  if (array_type->is_typeArray_klass()) {
+  if (array_type->is_flatArray_klass()) {
+    Handle holder(current, array_type->klass_holder()); // keep the array klass alive
+    FlatArrayKlass* fak = FlatArrayKlass::cast(array_type);
+    InlineKlass* vk = fak->element_klass();
+    result = oopFactory::new_flatArray(vk, len, fak->layout_kind(), THREAD);
+    if (array_type->is_null_free_array_klass() && !h_init_val.is_null()) {
+      // Null-free arrays need to be initialized
+      for (int i = 0; i < len; i++) {
+        vk->write_value_to_addr(h_init_val(), ((flatArrayOop)result)->value_at_addr(i, fak->layout_helper()), fak->layout_kind(), true, CHECK);
+      }
+    }
+  } else if (array_type->is_typeArray_klass()) {
     // The oopFactory likes to work with the element type.
     // (We could bypass the oopFactory, since it doesn't add much value.)
     BasicType elem_type = TypeArrayKlass::cast(array_type)->element_type();
     result = oopFactory::new_typeArray(elem_type, len, THREAD);
   } else {
-    // Although the oopFactory likes to work with the elem_type,
-    // the compiler prefers the array_type, since it must already have
-    // that latter value in hand for the fast path.
     Handle holder(current, array_type->klass_holder()); // keep the array klass alive
-    Klass* elem_type = ObjArrayKlass::cast(array_type)->element_klass();
-    result = oopFactory::new_objArray(elem_type, len, THREAD);
+    ObjArrayKlass* array_klass = ObjArrayKlass::cast(array_type);
+    result = array_klass->allocate(len, THREAD);
+    if (array_type->is_null_free_array_klass() && !h_init_val.is_null()) {
+      // Null-free arrays need to be initialized
+      for (int i = 0; i < len; i++) {
+        ((objArrayOop)result)->obj_at_put(i, h_init_val());
+      }
+    }
   }
 
   // Pass oops back through thread local storage.  Our apparent type to Java
@@ -575,9 +599,10 @@ JRT_END
 
 static const TypeFunc* make_new_instance_Type() {
   // create input type (domain)
-  const Type **fields = TypeTuple::fields(1);
+  const Type **fields = TypeTuple::fields(2);
   fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // Klass to be allocated
-  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+  fields[TypeFunc::Parms+1] = TypeInt::BOOL;        // is_larval
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+2, fields);
 
   // create result type (range)
   fields = TypeTuple::fields(1);
@@ -620,6 +645,23 @@ static const TypeFunc* make_athrow_Type() {
 }
 
 static const TypeFunc* make_new_array_Type() {
+  // create input type (domain)
+  const Type **fields = TypeTuple::fields(3);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;   // element klass
+  fields[TypeFunc::Parms+1] = TypeInt::INT;       // array size
+  fields[TypeFunc::Parms+2] = TypeInstPtr::NOTNULL;       // init value
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+3, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeRawPtr::NOTNULL; // Returned oop
+
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+static const TypeFunc* make_new_array_nozero_Type() {
   // create input type (domain)
   const Type **fields = TypeTuple::fields(2);
   fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;   // element klass
@@ -695,7 +737,7 @@ static const TypeFunc* make_complete_monitor_enter_Type() {
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0,fields);
 
-  return TypeFunc::make(domain,range);
+  return TypeFunc::make(domain, range);
 }
 
 //-----------------------------------------------------------------------------
@@ -1687,7 +1729,6 @@ JRT_ENTRY_NO_ASYNC(address, OptoRuntime::handle_exception_C_helper(JavaThread* c
 
   LogTarget(Info, exceptions) lt;
   if (lt.is_enabled()) {
-    ResourceMark rm;
     LogStream ls(lt);
     trace_exception(&ls, exception(), pc, "");
   }
@@ -1934,7 +1975,7 @@ static const TypeFunc* make_register_finalizer_Type() {
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0,fields);
 
-  return TypeFunc::make(domain,range);
+  return TypeFunc::make(domain, range);
 }
 
 #if INCLUDE_JFR
@@ -1966,7 +2007,7 @@ static const TypeFunc* make_dtrace_method_entry_exit_Type() {
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0,fields);
 
-  return TypeFunc::make(domain,range);
+  return TypeFunc::make(domain, range);
 }
 
 static const TypeFunc* make_dtrace_object_alloc_Type() {
@@ -1982,7 +2023,7 @@ static const TypeFunc* make_dtrace_object_alloc_Type() {
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0,fields);
 
-  return TypeFunc::make(domain,range);
+  return TypeFunc::make(domain, range);
 }
 
 JRT_ENTRY_NO_ASYNC(void, OptoRuntime::register_finalizer_C(oopDesc* obj, JavaThread* current))
@@ -2073,6 +2114,7 @@ NamedCounter* OptoRuntime::new_named_counter(JVMState* youngest_jvms, NamedCount
 void OptoRuntime::initialize_types() {
   _new_instance_Type                  = make_new_instance_Type();
   _new_array_Type                     = make_new_array_Type();
+  _new_array_nozero_Type              = make_new_array_nozero_Type();
   _multianewarray2_Type               = multianewarray_Type(2);
   _multianewarray3_Type               = multianewarray_Type(3);
   _multianewarray4_Type               = multianewarray_Type(4);
@@ -2167,4 +2209,109 @@ static void trace_exception(outputStream* st, oop exception_oop, address excepti
   tempst.print("]");
 
   st->print_raw_cr(tempst.freeze());
+}
+
+const TypeFunc *OptoRuntime::store_inline_type_fields_Type() {
+  // create input type (domain)
+  uint total = SharedRuntime::java_return_convention_max_int + SharedRuntime::java_return_convention_max_float*2;
+  const Type **fields = TypeTuple::fields(total);
+  // We don't know the number of returned values and their
+  // types. Assume all registers available to the return convention
+  // are used.
+  fields[TypeFunc::Parms] = TypePtr::BOTTOM;
+  uint i = 1;
+  for (; i < SharedRuntime::java_return_convention_max_int; i++) {
+    fields[TypeFunc::Parms+i] = TypeInt::INT;
+  }
+  for (; i < total; i+=2) {
+    fields[TypeFunc::Parms+i] = Type::DOUBLE;
+    fields[TypeFunc::Parms+i+1] = Type::HALF;
+  }
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms + total, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;
+
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1,fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+const TypeFunc *OptoRuntime::pack_inline_type_Type() {
+  // create input type (domain)
+  uint total = 1 + SharedRuntime::java_return_convention_max_int + SharedRuntime::java_return_convention_max_float*2;
+  const Type **fields = TypeTuple::fields(total);
+  // We don't know the number of returned values and their
+  // types. Assume all registers available to the return convention
+  // are used.
+  fields[TypeFunc::Parms] = TypeRawPtr::BOTTOM;
+  fields[TypeFunc::Parms+1] = TypeRawPtr::BOTTOM;
+  uint i = 2;
+  for (; i < SharedRuntime::java_return_convention_max_int+1; i++) {
+    fields[TypeFunc::Parms+i] = TypeInt::INT;
+  }
+  for (; i < total; i+=2) {
+    fields[TypeFunc::Parms+i] = Type::DOUBLE;
+    fields[TypeFunc::Parms+i+1] = Type::HALF;
+  }
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms + total, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;
+
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1,fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+JRT_BLOCK_ENTRY(void, OptoRuntime::load_unknown_inline_C(flatArrayOopDesc* array, int index, JavaThread* current))
+  JRT_BLOCK;
+  oop buffer = array->read_value_from_flat_array(index, THREAD);
+  deoptimize_caller_frame(current, HAS_PENDING_EXCEPTION);
+  current->set_vm_result(buffer);
+  JRT_BLOCK_END;
+JRT_END
+
+const TypeFunc* OptoRuntime::load_unknown_inline_Type() {
+  // create input type (domain)
+  const Type** fields = TypeTuple::fields(2);
+  fields[TypeFunc::Parms] = TypeOopPtr::NOTNULL;
+  fields[TypeFunc::Parms+1] = TypeInt::POS;
+
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms+2, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms] = TypeInstPtr::NOTNULL;
+
+  const TypeTuple* range = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+JRT_BLOCK_ENTRY(void, OptoRuntime::store_unknown_inline_C(instanceOopDesc* buffer, flatArrayOopDesc* array, int index, JavaThread* current))
+  JRT_BLOCK;
+  array->write_value_to_flat_array(buffer, index, THREAD);
+  if (HAS_PENDING_EXCEPTION) {
+      fatal("This entry must be changed to be a non-leaf entry because writing to a flat array can now throw an exception");
+  }
+  JRT_BLOCK_END;
+JRT_END
+
+const TypeFunc* OptoRuntime::store_unknown_inline_Type() {
+  // create input type (domain)
+  const Type** fields = TypeTuple::fields(3);
+  fields[TypeFunc::Parms] = TypeInstPtr::NOTNULL;
+  fields[TypeFunc::Parms+1] = TypeOopPtr::NOTNULL;
+  fields[TypeFunc::Parms+2] = TypeInt::POS;
+
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms+3, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(0);
+  const TypeTuple* range = TypeTuple::make(TypeFunc::Parms, fields);
+
+  return TypeFunc::make(domain, range);
 }

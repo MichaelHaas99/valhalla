@@ -1406,7 +1406,7 @@ void VM_Version::get_processor_features() {
   }
 
 #ifdef _LP64
-  if (supports_avx512ifma() && supports_avx512vlbw()) {
+  if ((supports_avx512ifma() && supports_avx512vlbw()) || supports_avxifma()) {
     if (FLAG_IS_DEFAULT(UseIntPolyIntrinsics)) {
       FLAG_SET_DEFAULT(UseIntPolyIntrinsics, true);
     }
@@ -1856,7 +1856,7 @@ void VM_Version::get_processor_features() {
 #endif
 
   // Use XMM/YMM MOVDQU instruction for Object Initialization
-  if (!UseFastStosb && UseSSE >= 2 && UseUnalignedLoadStores) {
+  if (UseSSE >= 2 && UseUnalignedLoadStores) {
     if (FLAG_IS_DEFAULT(UseXMMForObjInit)) {
       UseXMMForObjInit = true;
     }

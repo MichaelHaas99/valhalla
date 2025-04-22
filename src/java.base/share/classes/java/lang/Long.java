@@ -34,6 +34,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import jdk.internal.misc.CDS;
+import jdk.internal.value.DeserializeConstructor;
 import jdk.internal.util.DecimalDigits;
 import jdk.internal.vm.annotation.ForceInline;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
@@ -56,10 +57,19 @@ import static java.lang.String.UTF16;
  * with a {@code long}.
  *
  * <p>This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
- * class; programmers should treat instances that are
- * {@linkplain #equals(Object) equal} as interchangeable and should not
- * use instances for synchronization, or unpredictable behavior may
- * occur. For example, in a future release, synchronization may fail.
+ * class; programmers should treat instances that are {@linkplain #equals(Object) equal}
+ * as interchangeable and should not use instances for synchronization, mutexes, or
+ * with {@linkplain java.lang.ref.Reference object references}.
+ *
+ * <div class="preview-block">
+ *      <div class="preview-comment">
+ *          When preview features are enabled, {@code Long} is a {@linkplain Class#isValue value class}.
+ *          Use of value class instances for synchronization, mutexes, or with
+ *          {@linkplain java.lang.ref.Reference object references} result in
+ *          {@link IdentityException}.
+ *      </div>
+ * </div>
+ *
  *
  * <p>Implementation note: The implementations of the "bit twiddling"
  * methods (such as {@link #highestOneBit(long) highestOneBit} and
@@ -74,6 +84,7 @@ import static java.lang.String.UTF16;
  * @author  Joseph D. Darcy
  * @since   1.0
  */
+@jdk.internal.MigratedValueClass
 @jdk.internal.ValueBased
 public final class Long extends Number
         implements Comparable<Long>, Constable, ConstantDesc {
@@ -992,6 +1003,7 @@ public final class Long extends Number
      * @since  1.5
      */
     @IntrinsicCandidate
+    @DeserializeConstructor
     public static Long valueOf(long l) {
         final int offset = 128;
         if (l >= -128 && l <= 127) { // will cache

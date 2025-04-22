@@ -376,6 +376,21 @@ public class Annotate {
             }
 
             if (!c.type.isErroneous()
+                    && toAnnotate.kind == TYP
+                    && types.isSameType(c.type, syms.migratedValueClassType)) {
+                toAnnotate.flags_field |= Flags.MIGRATED_VALUE_CLASS;
+            }
+
+            if (!c.type.isErroneous()
+                    && toAnnotate.kind == VAR
+                    && toAnnotate.owner.kind == TYP
+                    && types.isSameType(c.type, syms.strictType)) {
+                toAnnotate.flags_field |= Flags.STRICT;
+                // temporary hack to indicate that a class has at least one strict field
+                toAnnotate.owner.flags_field |= Flags.HAS_STRICT;
+            }
+
+            if (!c.type.isErroneous()
                     && types.isSameType(c.type, syms.restrictedType)) {
                 toAnnotate.flags_field |= Flags.RESTRICTED;
             }

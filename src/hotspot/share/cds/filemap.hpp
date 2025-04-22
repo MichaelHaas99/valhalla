@@ -32,6 +32,7 @@
 #include "memory/allocation.hpp"
 #include "oops/array.hpp"
 #include "oops/compressedOops.hpp"
+#include "runtime/globals.hpp"
 #include "utilities/align.hpp"
 
 // To understand the layout of the CDS archive file:
@@ -98,6 +99,37 @@ public:
   void print(outputStream* st, int region_index);
 };
 
+#define CDS_MUST_MATCH_FLAGS_DO(f) \
+  f(EnableValhalla) \
+  f(UseArrayFlattening) \
+  f(UseFieldFlattening) \
+  f(InlineTypePassFieldsAsArgs) \
+  f(InlineTypeReturnedAsFields) \
+  f(UseNonAtomicValueFlattening) \
+  f(UseAtomicValueFlattening) \
+  f(UseNullableValueFlattening)
+
+
+class CDSMustMatchFlags {
+private:
+  size_t _max_name_width;
+#define DECLARE_CDS_MUST_MATCH_FLAG(n) \
+  decltype(n) _v_##n;
+  CDS_MUST_MATCH_FLAGS_DO(DECLARE_CDS_MUST_MATCH_FLAG);
+#undef DECLARE_CDS_MUST_MATCH_FLAG
+
+  inline static void do_print(outputStream* st, bool v);
+  inline static void do_print(outputStream* st, intx v);
+  inline static void do_print(outputStream* st, uintx v);
+  inline static void do_print(outputStream* st, double v);
+  void print_info() const;
+
+public:
+  void init();
+  bool runtime_check() const;
+  void print(outputStream* st) const;
+};
+
 class FileMapHeader: private CDSFileMapHeaderBase {
   friend class CDSConstants;
   friend class VMStructs;
@@ -140,6 +172,8 @@ private:
                                         // some expensive operations.
   bool   _has_aot_linked_classes;       // Was the CDS archive created with -XX:+AOTClassLinking
   bool   _has_full_module_graph;        // Does this CDS archive contain the full archived module graph?
+  bool   _has_valhalla_patched_classes; // Is this archived dumped with --enable-preview -XX:+EnableValhalla?
+  CDSMustMatchFlags _must_match;        // These flags must be the same between dumptime and runtime
   HeapRootSegments _heap_root_segments; // Heap root segments info
   size_t _heap_oopmap_start_pos;        // The first bit in the oopmap corresponds to this position in the heap.
   size_t _heap_ptrmap_start_pos;        // The first bit in the ptrmap corresponds to this position in the heap.
@@ -234,6 +268,10 @@ public:
                 size_t base_archive_name_size, size_t base_archive_name_offset);
   static bool is_valid_region(int region) {
     return (0 <= region && region < NUM_CDS_REGIONS);
+  }
+
+  bool check_must_match_flags() const {
+    return _must_match.runtime_check();
   }
 
   void print(outputStream* st);
@@ -399,7 +437,7 @@ public:
   // The offset of the (exclusive) end of the last core region in this archive, relative to SharedBaseAddress
   size_t mapping_end_offset()  const { return last_core_region()->mapping_end_offset(); }
 
-  char* mapped_base()    const { return first_core_region()->mapped_base(); }
+  char* mapped_base()    const { return header()->mapped_base_address();    }
   char* mapped_end()     const { return last_core_region()->mapped_end();   }
 
   // Non-zero if the archive needs to be mapped a non-default location due to ASLR.

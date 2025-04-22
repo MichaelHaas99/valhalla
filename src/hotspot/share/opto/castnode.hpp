@@ -210,6 +210,7 @@ class CheckCastPPNode: public ConstraintCastNode {
     init_class_id(Class_CheckCastPP);
   }
 
+  virtual Node* Identity(PhaseGVN* phase);
   virtual const Type* Value(PhaseGVN* phase) const;
   virtual int   Opcode() const;
   virtual uint  ideal_reg() const { return Op_RegP; }
@@ -230,6 +231,15 @@ class CastX2PNode : public Node {
   virtual const Type *bottom_type() const { return TypeRawPtr::BOTTOM; }
 };
 
+// Cast an integer to a narrow oop
+class CastI2NNode : public Node {
+  public:
+  CastI2NNode(Node* ctrl, Node* n) : Node(ctrl, n) { }
+  virtual int Opcode() const;
+  virtual uint ideal_reg() const { return Op_RegN; }
+  virtual const Type* bottom_type() const { return TypeNarrowOop::BOTTOM; }
+};
+
 //------------------------------CastP2XNode-------------------------------------
 // Used in both 32-bit and 64-bit land.
 // Used for card-marks and unsafe pointer math.
@@ -245,7 +255,5 @@ class CastP2XNode : public Node {
   // Return false to keep node from moving away from an associated card mark.
   virtual bool depends_only_on_test() const { return false; }
 };
-
-
 
 #endif // SHARE_OPTO_CASTNODE_HPP

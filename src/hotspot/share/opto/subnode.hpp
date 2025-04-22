@@ -217,8 +217,10 @@ class CmpLNode : public CmpNode {
 public:
   CmpLNode( Node *in1, Node *in2 ) : CmpNode(in1,in2) {}
   virtual int    Opcode() const;
-  virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
+  virtual Node* Ideal(PhaseGVN* phase, bool can_reshape);
+  virtual const Type* Value(PhaseGVN* phase) const;
   virtual const Type *sub( const Type *, const Type * ) const;
+  bool is_double_null_check(PhaseGVN* phase, Node*& a, Node*& b) const;
 };
 
 //------------------------------CmpULNode---------------------------------------
@@ -309,6 +311,26 @@ public:
   virtual uint ideal_reg() const { return Op_RegI; }
 };
 
+//--------------------------FlatArrayCheckNode---------------------------------
+// Returns true if one of the input array objects or array klass ptrs (there
+// can be multiple) is flat.
+class FlatArrayCheckNode : public CmpNode {
+public:
+  enum {
+    Control,
+    Memory,
+    ArrayOrKlass
+  };
+  FlatArrayCheckNode(Compile* C, Node* mem, Node* array_or_klass) : CmpNode(mem, array_or_klass) {
+    init_class_id(Class_FlatArrayCheck);
+    init_flags(Flag_is_macro);
+    C->add_macro_node(this);
+  }
+  virtual int Opcode() const;
+  virtual const Type* sub(const Type*, const Type*) const { ShouldNotReachHere(); return nullptr; }
+  const Type* Value(PhaseGVN* phase) const;
+  virtual Node* Ideal(PhaseGVN* phase, bool can_reshape);
+};
 
 //------------------------------BoolTest---------------------------------------
 // Convert condition codes to a boolean test value (0 or -1).
@@ -439,11 +461,18 @@ public:
   virtual uint ideal_reg() const { return Op_RegI; }
 };
 
+//------------------------------InvolutionNode----------------------------------
+// Represents a self-inverse operation, i.e., op(op(x)) = x for any x
+class InvolutionNode : public Node {
+public:
+  InvolutionNode(Node* in) : Node(nullptr, in) {}
+  virtual Node* Identity(PhaseGVN* phase);
+};
 
 //------------------------------NegNode----------------------------------------
-class NegNode : public Node {
+class NegNode : public InvolutionNode {
 public:
-  NegNode(Node* in1) : Node(nullptr, in1) {
+  NegNode(Node* in1) : InvolutionNode(in1) {
     init_class_id(Class_Neg);
   }
 };
@@ -556,9 +585,9 @@ public:
 
 //-------------------------------ReverseBytesINode--------------------------------
 // reverse bytes of an integer
-class ReverseBytesINode : public Node {
+class ReverseBytesINode : public InvolutionNode {
 public:
-  ReverseBytesINode(Node* in) : Node(nullptr, in) {}
+  ReverseBytesINode(Node* in) : InvolutionNode(in) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeInt::INT; }
   virtual uint ideal_reg() const { return Op_RegI; }
@@ -566,9 +595,9 @@ public:
 
 //-------------------------------ReverseBytesLNode--------------------------------
 // reverse bytes of a long
-class ReverseBytesLNode : public Node {
+class ReverseBytesLNode : public InvolutionNode {
 public:
-  ReverseBytesLNode(Node* in) : Node(nullptr, in) {}
+  ReverseBytesLNode(Node* in) : InvolutionNode(in) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeLong::LONG; }
   virtual uint ideal_reg() const { return Op_RegL; }
@@ -576,9 +605,9 @@ public:
 
 //-------------------------------ReverseBytesUSNode--------------------------------
 // reverse bytes of an unsigned short / char
-class ReverseBytesUSNode : public Node {
+class ReverseBytesUSNode : public InvolutionNode {
 public:
-  ReverseBytesUSNode(Node* in1) : Node(nullptr, in1) {}
+  ReverseBytesUSNode(Node* in1) : InvolutionNode(in1) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeInt::CHAR; }
   virtual uint ideal_reg() const { return Op_RegI; }
@@ -586,9 +615,9 @@ public:
 
 //-------------------------------ReverseBytesSNode--------------------------------
 // reverse bytes of a short
-class ReverseBytesSNode : public Node {
+class ReverseBytesSNode : public InvolutionNode {
 public:
-  ReverseBytesSNode(Node* in) : Node(nullptr, in) {}
+  ReverseBytesSNode(Node* in) : InvolutionNode(in) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeInt::SHORT; }
   virtual uint ideal_reg() const { return Op_RegI; }
@@ -596,25 +625,23 @@ public:
 
 //-------------------------------ReverseINode--------------------------------
 // reverse bits of an int
-class ReverseINode : public Node {
+class ReverseINode : public InvolutionNode {
 public:
-  ReverseINode(Node* in) : Node(nullptr, in) {}
+  ReverseINode(Node* in) : InvolutionNode(in) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeInt::INT; }
   virtual uint ideal_reg() const { return Op_RegI; }
-  virtual Node* Identity(PhaseGVN* phase);
   virtual const Type* Value(PhaseGVN* phase) const;
 };
 
 //-------------------------------ReverseLNode--------------------------------
 // reverse bits of a long
-class ReverseLNode : public Node {
+class ReverseLNode : public InvolutionNode {
 public:
-  ReverseLNode(Node* in) : Node(nullptr, in) {}
+  ReverseLNode(Node* in) : InvolutionNode(in) {}
   virtual int Opcode() const;
   const Type* bottom_type() const { return TypeLong::LONG; }
   virtual uint ideal_reg() const { return Op_RegL; }
-  virtual Node* Identity(PhaseGVN* phase);
   virtual const Type* Value(PhaseGVN* phase) const;
 };
 

@@ -25,12 +25,15 @@
 
 package java.lang.reflect;
 
+import jdk.internal.javac.PreviewFeature;
+
 import java.util.StringJoiner;
 
 /**
  * The Modifier class provides {@code static} methods and
- * constants to decode class and member access modifiers.  The sets of
- * modifiers are represented as integers with distinct bit positions
+ * constants to decode class and member access modifiers.
+ * The {@link AccessFlag} class should be used instead of this class.
+ * The sets of modifiers are represented as integers with non-distinct bit positions
  * representing different modifiers.  The values for the constants
  * representing the modifiers are taken from the tables in sections
  * {@jvms 4.1}, {@jvms 4.4}, {@jvms 4.5}, and {@jvms 4.7} of
@@ -40,8 +43,8 @@ import java.util.StringJoiner;
  * Not all modifiers that are syntactic Java language modifiers are
  * represented in this class, only those modifiers that <em>also</em>
  * have a corresponding JVM {@linkplain AccessFlag access flag} are
- * included. In particular the {@code default} method modifier (JLS
- * {@jls 9.4.3}) and the {@code sealed} and {@code non-sealed} class
+ * included. In particular, the {@code default} method modifier (JLS
+ * {@jls 9.4.3}) and the {@code value}, {@code sealed} and {@code non-sealed} class
  * (JLS {@jls 8.1.1.2}) and interface (JLS {@jls 9.1.1.4}) modifiers
  * are <em>not</em> represented in this class.
  *
@@ -123,12 +126,33 @@ public final class Modifier {
      * Return {@code true} if the integer argument includes the
      * {@code synchronized} modifier, {@code false} otherwise.
      *
+     * @apiNote {@code isSynchronized} should only be called with the modifiers
+     * of a {@linkplain Method#getModifiers() method}.
+     *
      * @param   mod a set of modifiers
      * @return {@code true} if {@code mod} includes the
      * {@code synchronized} modifier; {@code false} otherwise.
      */
     public static boolean isSynchronized(int mod) {
         return (mod & SYNCHRONIZED) != 0;
+    }
+
+    /**
+     * Return {@code true} if the integer argument includes the
+     * {@code identity} modifier, {@code false} otherwise.
+     *
+     * @apiNote {@code isIdentity} should only be called with the modifiers
+     * of a {@linkplain Class#getModifiers() class}.
+     *
+     * @param   mod a set of modifiers
+     * @return {@code true} if {@code mod} includes the
+     * {@code identity} modifier; {@code false} otherwise.
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    public static boolean isIdentity(int mod) {
+        return (mod & IDENTITY) != 0;
     }
 
     /**
@@ -207,7 +231,7 @@ public final class Modifier {
      * Return a string describing the access modifier flags in
      * the specified modifier. For example:
      * <blockquote><pre>
-     *    public final synchronized strictfp
+     *    public final synchronized
      * </pre></blockquote>
      * The modifier names are returned in an order consistent with the
      * suggested modifier orderings given in sections 8.1.1, 8.3.1, 8.4.3, 8.8.3, and 9.1.1 of
@@ -320,6 +344,15 @@ public final class Modifier {
     public static final int SYNCHRONIZED     = 0x00000020;
 
     /**
+     * The {@code int} value representing the {@code ACC_IDENTITY}
+     * modifier.
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    public static final int IDENTITY         = 0x00000020;
+
+    /**
      * The {@code int} value representing the {@code volatile}
      * modifier.
      * @see AccessFlag#VOLATILE
@@ -357,7 +390,7 @@ public final class Modifier {
     /**
      * The {@code int} value representing the {@code strictfp}
      * modifier.
-     * @see AccessFlag#STRICT
+     * @see AccessFlag#STRICT and AccessFlag#STRICT_FIELD
      */
     public static final int STRICT           = 0x00000800;
 
@@ -396,7 +429,7 @@ public final class Modifier {
     private static final int CLASS_MODIFIERS =
         Modifier.PUBLIC         | Modifier.PROTECTED    | Modifier.PRIVATE |
         Modifier.ABSTRACT       | Modifier.STATIC       | Modifier.FINAL   |
-        Modifier.STRICT;
+        Modifier.IDENTITY       | Modifier.STRICT;
 
     /**
      * The Java source modifiers that can be applied to an interface.
@@ -430,7 +463,7 @@ public final class Modifier {
     private static final int FIELD_MODIFIERS =
         Modifier.PUBLIC         | Modifier.PROTECTED    | Modifier.PRIVATE |
         Modifier.STATIC         | Modifier.FINAL        | Modifier.TRANSIENT |
-        Modifier.VOLATILE;
+        Modifier.VOLATILE       | Modifier.STRICT;
 
     /**
      * The Java source modifiers that can be applied to a method or constructor parameter.

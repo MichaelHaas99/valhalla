@@ -75,6 +75,7 @@
 #include "memory/universe.hpp"
 #include "nmt/memTracker.hpp"
 #include "oops/access.inline.hpp"
+#include "oops/flatArrayKlass.inline.hpp"
 #include "oops/instanceClassLoaderKlass.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/instanceMirrorKlass.inline.hpp"
@@ -256,7 +257,7 @@ ParallelCompactData::create_vspace(size_t count, size_t element_size)
   os::trace_page_sizes("Parallel Compact Data", raw_bytes, raw_bytes, rs.base(),
                        rs.size(), page_sz);
 
-  MemTracker::record_virtual_memory_tag((address)rs.base(), mtGC);
+  MemTracker::record_virtual_memory_tag(rs, mtGC);
 
   PSVirtualSpace* vspace = new PSVirtualSpace(rs, page_sz);
 
@@ -2450,8 +2451,11 @@ void MoveAndUpdateClosure::do_addr(HeapWord* addr, size_t words) {
     assert(source() != destination(), "inv");
     assert(FullGCForwarding::is_forwarded(cast_to_oop(source())), "inv");
     assert(FullGCForwarding::forwardee(cast_to_oop(source())) == cast_to_oop(destination()), "inv");
+    // Read the klass before the copying, since it might destroy the klass (i.e. overlapping copy)
+    // and if partial copy, the destination klass may not be copied yet
+    Klass* klass = cast_to_oop(source())->klass();
     Copy::aligned_conjoint_words(source(), copy_destination(), words);
-    cast_to_oop(copy_destination())->init_mark();
+    cast_to_oop(copy_destination())->set_mark(Klass::default_prototype_header(klass));
   }
 
   update_state(words);

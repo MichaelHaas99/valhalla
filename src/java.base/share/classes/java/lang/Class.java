@@ -38,6 +38,7 @@ import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.AnnotatedType;
 import java.lang.reflect.AccessFlag;
 import java.lang.reflect.Array;
+import java.lang.reflect.ClassFileFormatVersion;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
@@ -70,8 +71,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import jdk.internal.constant.ConstantUtils;
+import jdk.internal.javac.PreviewFeature;
 import jdk.internal.loader.BootLoader;
 import jdk.internal.loader.BuiltinClassLoader;
+import jdk.internal.misc.PreviewFeatures;
 import jdk.internal.misc.Unsafe;
 import jdk.internal.module.Resources;
 import jdk.internal.reflect.CallerSensitive;
@@ -217,9 +220,9 @@ public final class Class<T> implements java.io.Serializable,
                               AnnotatedElement,
                               TypeDescriptor.OfField<Class<?>>,
                               Constable {
-    private static final int ANNOTATION= 0x00002000;
-    private static final int ENUM      = 0x00004000;
-    private static final int SYNTHETIC = 0x00001000;
+    private static final int ANNOTATION = 0x00002000;
+    private static final int ENUM       = 0x00004000;
+    private static final int SYNTHETIC  = 0x00001000;
 
     private static native void registerNatives();
     static {
@@ -315,6 +318,8 @@ public final class Class<T> implements java.io.Serializable,
             } else {
                 // Class modifiers are a superset of interface modifiers
                 int modifiers = getModifiers() & Modifier.classModifiers();
+                // Modifier.toString() below mis-interprets SYNCHRONIZED, STRICT, and VOLATILE bits
+                modifiers &= ~(Modifier.SYNCHRONIZED | Modifier.STRICT | Modifier.VOLATILE);
                 if (modifiers != 0) {
                     sb.append(Modifier.toString(modifiers));
                     sb.append(' ');
@@ -327,6 +332,9 @@ public final class Class<T> implements java.io.Serializable,
 
                 if (isAnnotation()) {
                     sb.append('@');
+                }
+                if (isValue()) {
+                    sb.append("value ");
                 }
                 if (isInterface()) { // Note: all annotation interfaces are interfaces
                     sb.append("interface");
@@ -600,6 +608,39 @@ public final class Class<T> implements java.io.Serializable,
         } else {
             return BootLoader.loadClass(module, name);
         }
+    }
+
+    /**
+     * {@return {@code true} if this {@code Class} object represents an identity
+     * class or interface; otherwise {@code false}}
+     *
+     * If this {@code Class} object represents an array type, then this method
+     * returns {@code true}.
+     * If this {@code Class} object represents a primitive type, or {@code void},
+     * then this method returns {@code false}.
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    public native boolean isIdentity();
+
+    /**
+     * {@return {@code true} if this {@code Class} object represents a value
+     * class; otherwise {@code false}}
+     *
+     * If this {@code Class} object represents an array type, an interface,
+     * a primitive type, or {@code void}, then this method returns {@code false}.
+     *
+     * @since Valhalla
+     */
+    @PreviewFeature(feature = PreviewFeature.Feature.VALUE_OBJECTS, reflective=true)
+    public boolean isValue() {
+        if (!PreviewFeatures.isEnabled()) {
+            return false;
+        }
+         if (isPrimitive() || isArray() || isInterface())
+             return false;
+        return ((getModifiers() & Modifier.IDENTITY) == 0);
     }
 
     /**
@@ -1328,6 +1369,7 @@ public final class Class<T> implements java.io.Serializable,
      *      {@code true}
      * <li> its interface modifier is always {@code false}, even when
      *      the component type is an interface
+     * <li> its {@code identity} modifier is always true
      * </ul>
      * If this {@code Class} object represents a primitive type or
      * void, its {@code public}, {@code abstract}, and {@code final}
@@ -1352,9 +1394,10 @@ public final class Class<T> implements java.io.Serializable,
      */
     public int getModifiers() { return modifiers; }
 
-    /**
+   /**
      * {@return an unmodifiable set of the {@linkplain AccessFlag access
      * flags} for this class, possibly empty}
+     * The {@code AccessFlags} may depend on the class file format version of the class.
      *
      * <p> If the underlying class is an array class:
      * <ul>
@@ -1363,6 +1406,7 @@ public final class Class<T> implements java.io.Serializable,
      * <li> its {@code ABSTRACT} and {@code FINAL} flags are present
      * <li> its {@code INTERFACE} flag is absent, even when the
      *      component type is an interface
+    * <li> its {@code identity} modifier is always true
      * </ul>
      * If this {@code Class} object represents a primitive type or
      * void, the flags are {@code PUBLIC}, {@code ABSTRACT}, and
@@ -1384,13 +1428,20 @@ public final class Class<T> implements java.io.Serializable,
                         isAnonymousClass() || isArray()) ?
             AccessFlag.Location.INNER_CLASS :
             AccessFlag.Location.CLASS;
-        return AccessFlag.maskToAccessFlags((location == AccessFlag.Location.CLASS) ?
-                                            getClassAccessFlagsRaw() :
-                                            getModifiers(),
-                                            location);
+        int accessFlags = (location == AccessFlag.Location.CLASS) ?
+                getClassAccessFlagsRaw() : getModifiers();
+        if (isArray() && PreviewFeatures.isEnabled()) {
+            accessFlags |= Modifier.IDENTITY;
+        }
+        var cffv = ClassFileFormatVersion.fromMajor(getClassFileVersion() & 0xffff);
+        if (cffv.compareTo(ClassFileFormatVersion.latest()) >= 0) {
+            // Ignore unspecified (0x0800) access flag for current version
+            accessFlags &= ~0x0800;
+        }
+        return AccessFlag.maskToAccessFlags(accessFlags, location, cffv);
     }
 
-    /**
+   /**
      * Gets the signers of this class.
      *
      * @return  the signers of this class, or null if there are no signers.  In
@@ -1398,6 +1449,7 @@ public final class Class<T> implements java.io.Serializable,
      *          a primitive type or void.
      * @since   1.1
      */
+
     public Object[] getSigners() {
         var signers = this.signers;
         return signers == null ? null : signers.clone();
@@ -3785,7 +3837,7 @@ public final class Class<T> implements java.io.Serializable,
      * @since 1.8
      */
     public AnnotatedType[] getAnnotatedInterfaces() {
-         return TypeAnnotationParser.buildAnnotatedInterfaces(getRawTypeAnnotations(), getConstantPool(), this);
+        return TypeAnnotationParser.buildAnnotatedInterfaces(getRawTypeAnnotations(), getConstantPool(), this);
     }
 
     private native Class<?> getNestHost0();
@@ -4125,7 +4177,8 @@ public final class Class<T> implements java.io.Serializable,
      * type is returned.  If the class is a primitive type then the latest class
      * file major version is returned and zero is returned for the minor version.
      */
-    private int getClassFileVersion() {
+    /* package-private */
+    int getClassFileVersion() {
         Class<?> c = isArray() ? elementType() : this;
         return c.getClassFileVersion0();
     }

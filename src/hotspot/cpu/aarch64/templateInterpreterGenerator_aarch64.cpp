@@ -41,6 +41,7 @@
 #include "oops/methodCounters.hpp"
 #include "oops/methodData.hpp"
 #include "oops/oop.inline.hpp"
+#include "oops/inlineKlass.hpp"
 #include "oops/resolvedIndyEntry.hpp"
 #include "oops/resolvedMethodEntry.hpp"
 #include "prims/jvmtiExport.hpp"
@@ -467,6 +468,11 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   __ lea(esp, Address(rfp, rscratch1, Address::lsl(Interpreter::logStackElementSize)));
   // and null it as marker that esp is now tos until next java call
   __ str(zr, Address(rfp, frame::interpreter_frame_last_sp_offset * wordSize));
+
+  if (state == atos && InlineTypeReturnedAsFields) {
+    __ store_inline_type_fields_to_buf(nullptr, true);
+  }
+
   __ restore_bcp();
   __ restore_locals();
   __ restore_constant_pool_cache();
@@ -1800,12 +1806,6 @@ address TemplateInterpreterGenerator::generate_currentThread() {
   return entry_point;
 }
 
-// Not supported
-address TemplateInterpreterGenerator::generate_Float_intBitsToFloat_entry() { return nullptr; }
-address TemplateInterpreterGenerator::generate_Float_floatToRawIntBits_entry() { return nullptr; }
-address TemplateInterpreterGenerator::generate_Double_longBitsToDouble_entry() { return nullptr; }
-address TemplateInterpreterGenerator::generate_Double_doubleToRawLongBits_entry() { return nullptr; }
-
 //-----------------------------------------------------------------------------
 // Exceptions
 
@@ -2102,7 +2102,7 @@ address TemplateInterpreterGenerator::generate_trace_code(TosState state) {
 
 void TemplateInterpreterGenerator::count_bytecode() {
   __ mov(r10, (address) &BytecodeCounter::_counter_value);
-  __ atomic_addw(noreg, 1, r10);
+  __ atomic_add(noreg, 1, r10);
 }
 
 void TemplateInterpreterGenerator::histogram_bytecode(Template* t) {
@@ -2150,7 +2150,7 @@ void TemplateInterpreterGenerator::stop_interpreter_at() {
   __ mov(rscratch1, (address) &BytecodeCounter::_counter_value);
   __ ldr(rscratch1, Address(rscratch1));
   __ mov(rscratch2, StopInterpreterAt);
-  __ cmpw(rscratch1, rscratch2);
+  __ cmp(rscratch1, rscratch2);
   __ br(Assembler::NE, L);
   __ brk(0);
   __ bind(L);

@@ -182,6 +182,11 @@ StubGenBlobId StubRoutines::stub_to_blob(StubGenStubId stubId) {
 
 #endif // ASSERT
 
+// TODO: update with 8343767
+address StubRoutines::_load_inline_type_fields_in_regs = nullptr;
+address StubRoutines::_store_inline_type_fields_to_buf = nullptr;
+
+
 // Initialization
 //
 // Note: to break cycle with universe initialization, stubs are generated in two phases.
