@@ -132,4 +132,25 @@ public final class StackSlot extends AllocatableValue {
         }
         return false;
     }
+
+    // TODO: can we somehow avoid this?
+    private boolean isOldArgument;
+    private boolean isNewArgument;
+
+    public boolean isOldArgument() {
+        return isOldArgument;
+    }
+
+    public boolean isNewArgument() {
+        return isNewArgument;
+    }
+
+    public void setOldArgument(boolean oldArgument) {
+        this.isOldArgument = oldArgument;
+    }
+
+    public void setNewArgument(boolean newArgument) {
+        this.isNewArgument = newArgument;
+    }
+
 }
