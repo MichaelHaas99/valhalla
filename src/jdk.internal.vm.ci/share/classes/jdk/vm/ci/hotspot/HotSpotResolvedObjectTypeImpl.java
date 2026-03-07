@@ -60,6 +60,7 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
     private HotSpotResolvedJavaMethodImpl[] methodCacheArray;
     private HashMap<Long, HotSpotResolvedJavaMethodImpl> methodCacheHashMap;
     private volatile HotSpotResolvedJavaField[] instanceFields;
+    private volatile HotSpotResolvedJavaField[] declaredFields;
     private volatile HotSpotResolvedObjectTypeImpl[] interfaces;
     private HotSpotConstantPool constantPool;
     private final JavaConstant mirror;
@@ -903,6 +904,45 @@ final class HotSpotResolvedObjectTypeImpl extends HotSpotResolvedJavaType implem
             }
         }
         return instanceFields;
+    }
+
+    @Override
+    public ResolvedJavaField[] getDeclaredFields(boolean includeSuperclasses) {
+        if (declaredFields == null) {
+            if (isArray() || isInterface()) {
+                declaredFields = NO_FIELDS;
+            } else {
+                HotSpotResolvedJavaField[] prepend = NO_FIELDS;
+                if (getSuperclass() != null) {
+                    prepend = (HotSpotResolvedJavaField[]) getSuperclass().getDeclaredFields(true);
+                }
+                declaredFields = getFields(false, prepend);
+
+            }
+        }
+        if (!includeSuperclasses && getSuperclass() != null) {
+            int superClassFieldCount = getSuperclass().getDeclaredFields(true).length;
+            if (superClassFieldCount == declaredFields.length) {
+                // This class does not have any instance fields of its own.
+                return NO_FIELDS;
+            } else if (superClassFieldCount != 0) {
+                // Fields of the current class can be interleaved with fields of its super-classes
+                // but the array of fields to be returned must be sorted by increasing offset
+                // This code populates the array, then applies the sorting function
+                HotSpotResolvedJavaField[] result = new HotSpotResolvedJavaField[declaredFields.length - superClassFieldCount];
+                int i = 0;
+                for (HotSpotResolvedJavaField f : declaredFields) {
+                    if (f.getDeclaringClass() == this) {
+                        result[i++] = f;
+                    }
+                }
+                Arrays.sort(result, fieldSortingMethod);
+                return result;
+            } else {
+                // The super classes of this class do not have any instance fields.
+            }
+        }
+        return declaredFields;
     }
 
     @Override

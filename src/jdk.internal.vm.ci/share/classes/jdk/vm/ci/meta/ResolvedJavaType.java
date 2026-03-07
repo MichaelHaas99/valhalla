@@ -316,6 +316,10 @@ public interface ResolvedJavaType extends JavaType, ModifiersProvider, Annotated
      */
     ResolvedJavaField[] getInstanceFields(boolean includeSuperclasses);
 
+    default ResolvedJavaField[] getDeclaredFields(boolean includeSuperclasses) {
+        return getInstanceFields(includeSuperclasses);
+    }
+
     /**
      * Returns the static fields of this class, including {@linkplain ResolvedJavaField#isInternal()
      * internal} fields. A zero-length array is returned for array and primitive types. The order of
